@@ -32,7 +32,7 @@
         <div class='container header'><div class='row justify-content-md-center'><div class='col-lg-9 col'>
         <nav class="navbar navbar-expand-lg">
           <div class="container">
-      <a class="navbar-brand" href="index.html">
+      <a class="navbar-brand" href="index.html?viewParam=all">
         <img src='https://nostr.band/android-chrome-192x192.png' width='26'
              class="d-inline-block align-text-top" >
         Nostr.Band
@@ -54,12 +54,13 @@
          aria-expanded="false">
         Top
             </a>
-            <ul class="dropdown-menu" id="trending-links">
-        <li><a class="dropdown-item" href="trending/profiles/index.html">People</a></li>
-        <li><a class="dropdown-item" href="trending/posts/index.html">Posts</a></li>
-        <li><a class="dropdown-item" href="trending/images/index.html">Images</a></li>
-        <li><a class="dropdown-item" href="trending/videos/index.html">Video</a></li>
-        <li><a class="dropdown-item" href="trending/audios/index.html">Audio</a></li>
+            <ul class="dropdown-menu">
+        <li><a class="dropdown-item" href="index.html?viewParam=trending&viewValue=profiles">People</a></li>
+        <li><a class="dropdown-item" href="index.html?viewParam=trending&viewValue=posts">Posts</a></li>
+        <li><a class="dropdown-item" href="index.html?viewParam=trending&viewValue=images">Images</a></li>
+        <li><a class="dropdown-item" href="index.html?viewParam=trending&viewValue=videos">Video</a></li>
+        <li><a class="dropdown-item" href="index.html?viewParam=trending&viewValue=audios">Audio</a></li>
+        
             </ul>
                 </li>
           <li class="nav-item dropdown">
