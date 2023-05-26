@@ -3204,7 +3204,7 @@ ${active_label}
         else
             $("body").removeClass("embed-mode");
 
-        if (params.viewParam && params.viewParam.startsWith("trending"))
+        if (path.startsWith("/trending/"))
         {
             setQuery("");
             $("#results").html("");
@@ -3212,8 +3212,8 @@ ${active_label}
             $("#loading").addClass("d-none");
 
             const segments = path.split("/");
-            const type = params.viewValue;
-            let date = params.viewDate;
+            const type = segments.length > 2 ? segments[2] : "profiles";
+            let date = segments.length > 3 ? segments[3] : "";
             console.log(segments, type, date);
 
             if (type == "profiles"
@@ -3769,14 +3769,13 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
         {
             const d = new Date(Date.now ());
             const dt = formatDate(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()-1)));
-            html += `<a href='index.html?viewParam=trending&viewValue=profiles&viewDate=${dt}'>See who was trending yesterday &rarr;</a>`;
+            html += `<a href='/trending/profiles/${dt}'>See who was trending yesterday &rarr;</a>`;
         }
 
         function gotoDate(date) {
             const url = new URL(window.location);
             console.log(url);
-            //url.pathname = "&viewDate=" + date;
-            url.searchParams.set('viewDate', date);
+            url.pathname = "/trending/profiles/" + date;
             pushUrl(url);
             showTrending("profiles", date);
         };
