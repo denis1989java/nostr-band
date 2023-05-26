@@ -84,15 +84,26 @@ $(function () {
             .split("&").map(function(n){return n = n.split("="),this[n[0]] = n[1],this}.bind({}))[0];
     }
 
-    function formatPageUrl(q, p, type) {
-        const eq = encodeURIComponent(q);
-        const ep = encodeURIComponent(p ? p : '');
-        const et = encodeURIComponent(type ? type : '');
-        return "/?q=" + eq
-            + (ep ? "&p=" + ep : "")
-            + (et ? "&type=" + et : "")
-            ;
+  function formatPageUrl(q, p, type) {
+    console.log(q, p, type);
+    const eq = encodeURIComponent(q);
+    const ep = encodeURIComponent(p ? p : "");
+    const et = encodeURIComponent(type ? type : "");
+    if (type === "nostr") {
+      return `index.html?viewParam=${q}`;
     }
+    if (type === "zaps") {
+      return (
+        "index.html?q=" +
+        eq +
+        (ep ? "&p=" + ep : "") +
+        (et ? "&type=" + et : "")
+      );
+    }
+    return (
+      "index.html?q=" + eq + (ep ? "&p=" + ep : "") + (et ? "&type=" + et : "")
+    );
+  }
 
     async function copyToClip(data) {
         try
@@ -250,30 +261,30 @@ Let's scan all known relays right from your browser:<br>
             //	    console.log(m, segment);
             content += segment;
 
-            // append link
-            const link = e.links[m.i];
-            let href = link.uri;
-            if (link.type == "pubkey")
-                href = "/" + getNpub(link.uri);
-            else if (link.type == "event")
-                href = "/" + getNoteId(link.uri);
-            else if (link.type == "hashtag")
-                href = "/?q=" + encodeURIComponent((link.uri.startsWith("#") ? "" : "#") + link.uri);
-            else if (link.type == "url")
-                href = link.uri;
-
-            const ext = link.type == "url";
-            let label = link.label;
-            if (link.type == "url")
-            {
-                label = (link.uri.length > 40)
-                    ? link.uri.substring(0, 30) + "..." + link.uri.substring(link.uri.length - 10)
-                    : link.uri;
-            }
-            else if (!label)
-            {
-                label = link.uri;
-            }
+      // append link
+      const link = e.links[m.i];
+      let href = link.uri;
+      if (link.type == "pubkey") {
+        href = `index.html?viewParam=${getNpub(link.uri)}`;
+      } else if (link.type == "event")
+        href = "index.html?viewParam=" + getNoteId(link.uri);
+      else if (link.type == "hashtag")
+        href =
+          "index.html?q=" +
+          encodeURIComponent((link.uri.startsWith("#") ? "" : "#") + link.uri);
+      else if (link.type == "url") href = link.uri;
+      const ext = link.type == "url";
+      let label = link.label;
+      if (link.type == "url") {
+        label =
+          link.uri.length > 40
+            ? link.uri.substring(0, 30) +
+              "..." +
+              link.uri.substring(link.uri.length - 10)
+            : link.uri;
+      } else if (!label) {
+        label = link.uri;
+      }
 
             if (!link.label && link.type == "event")
             {
@@ -401,15 +412,22 @@ Let's scan all known relays right from your browser:<br>
 
         const thread_url = formatPageUrl(u.id, 0, '', 'nostr');
 
-        const npub = getNpub(u.pubkey);
-        const profile_href = "/" + npub;
-        const note = getNoteId(u.id);
-        const post_href = "/" + getNoteId(u.id); // (u.type == "long_post" ? getNaddr(u) : getNoteId(u.id));
-        const relay = "wss://relay.nostr.band";
-        const nprofile = tools.nip19.nprofileEncode({pubkey: u.pubkey, relays: [relay]});
-        const nevent = tools.nip19.neventEncode({id: u.id, relays: [relay]});
-        // FIXME need d_tag!!!
-//    const naddr = tools.nip19.naddrEncode({id: u.id, relays: [relay]});
+    const npub = getNpub(u.pubkey);
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", npub);
+    pushUrl(url);
+    const note = getNoteId(u.id);
+    const post_href = "/" + getNoteId(u.id);
+    const profile_href = url;
+    // (u.type == "long_post" ? getNaddr(u) : getNoteId(u.id));
+    const relay = "wss://relay.nostr.band";
+    const nprofile = tools.nip19.nprofileEncode({
+      pubkey: u.pubkey,
+      relays: [relay],
+    });
+    const nevent = tools.nip19.neventEncode({ id: u.id, relays: [relay] });
+    // FIXME need d_tag!!!
+    //    const naddr = tools.nip19.naddrEncode({id: u.id, relays: [relay]});
 
         const profile_btns = `
 <span class='profile-buttons'>
@@ -947,12 +965,13 @@ ${show_profile || req.trending ? "" : "<br>" + zaps}
         const target_thumb = target_img ? formatThumbUrl(target_pubkey, "picture") : "";
         const target_psize = 48;
 
-        let target = "to profile.";
-        if (z.target_event)
-        {
-            const post_href = "/" + getNoteId(z.target_event.id);
-            target = `
-for "<em>${san(z.target_event.content.substring(0, 90))}...</em> <a href='${post_href}'>&rarr;</a>" 
+    let target = "to profile.";
+    if (z.target_event) {
+      const post_href = "index.html?viewParam=" + getNoteId(z.target_event.id);
+      target = `
+for "<em>${san(
+        z.target_event.content.substring(0, 90)
+      )}...</em> <a href='${post_href}'>&rarr;</a>" 
 `;
         }
 
@@ -2790,7 +2809,7 @@ ${active_label}
 
         const eq = encodeURIComponent(event_id);
         const url = NOSTR_API + "method=comments&id=" + eq 
-            //	      + (ep ? "&p=" + ep : "")
+        //	      + (ep ? "&p=" + ep : "")
         ;
 
         $.ajax({
@@ -2820,7 +2839,7 @@ ${active_label}
             {
                 html += "<p class='mt-4'>Nothing found :(<br>";
                 html += formatScanRelays(event_id);
-            } 
+            }
             else
             {
         const u = r.comments[0];
@@ -2921,7 +2940,7 @@ ${active_label}
         });
     }
 
-    /*  function getComments(event_id) {
+  /*  function getComments(event_id) {
     console.log("show post", event_id);
     
     $("#search-spinner").removeClass("d-none");
@@ -3227,11 +3246,11 @@ ${active_label}
         $("#object-type").attr("data-type", type);
     }
 
-    function updateParamsState() {
+  function updateParamsState() {
+    const params = deParams();
+    // let path = document.location.pathname;
 
-        const params = deParams();
-        let path = document.location.pathname;
-        console.log("params ", params, document.location);
+    console.log("params ", params, document.location);
 
         // update type
         let type = "all";
@@ -3258,17 +3277,15 @@ ${active_label}
         else
             $("body").removeClass("embed-mode");
 
-        if (path.startsWith("/trending/"))
-        {
-            setQuery("");
-            $("#results").html("");
-            $("#welcome").removeClass("d-none");
-            $("#loading").addClass("d-none");
+    if (params.viewParam && params.viewParam.startsWith("trending")) {
+      setQuery("");
+      $("#results").html("");
+      $("#welcome").removeClass("d-none");
+      $("#loading").addClass("d-none");
 
-            const segments = path.split("/");
-            const type = segments.length > 2 ? segments[2] : "profiles";
-            let date = segments.length > 3 ? segments[3] : "";
-            console.log(segments, type, date);
+      const type = params.viewValue;
+      let date = params.viewDate;
+      // console.log(segments, type, date);
 
             if (type == "profiles"
                 || type == "posts"
@@ -3310,52 +3327,41 @@ ${active_label}
             return;
         }
 
-        if (path.startsWith ("/note1")
-            || path.startsWith("/npub1")
-            || path.startsWith ("/nevent1")
-            || path.startsWith ("/nprofile1"))
-        {
-            $("#welcome").addClass("d-none");
-            $("#loading").removeClass("d-none");
+    if (
+      params.viewParam &&
+      (params.viewParam.startsWith("note1") ||
+        params.viewParam.startsWith("npub1") ||
+        params.viewParam.startsWith("note1") ||
+        params.viewParam.startsWith("nevent1") ||
+        params.viewParam.startsWith("nprofile1"))
+    ) {
+      $("#welcome").addClass("d-none");
+      $("#loading").removeClass("d-none");
 
-            const segments = path.split("/");
-            const id = segments[1];
-            const edits = segments.length > 2 && segments[2] == "edits";
-            const sub_page = segments.length > 2 ? segments[2] : "";
+      const id = params.viewParam;
+      const edits = params.edits && params.edits == "edits";
+      const sub_page = params.sub_page ? params.sub_page : "";
 
-            try
-            {
-//	console.log(id);
-                const r = tools.nip19.decode(id);
-//	console.log(r);
-                const q = r.data;
-//	console.log(q);
-                if (r.type == "note")
-                {
-                    console.log("note", q);
-                    showPost(q, sub_page);
-                }
-                else if (r.type == "npub")
-                {
-                    // console.log("pubkey", q, "edits", edits);
-                    if (edits)
-                        showProfileEdits(q);
-                    else
-                        showProfile(q, sub_page);
-                }
-                else if (r.type == "nevent")
-                {
-                    console.log("nevent", q);
-                    showPost(q.id, sub_page);
-                }
-                else if (r.type == "nprofile")
-                {
-                    console.log("nprofile", q, "edits", edits);
-                    if (edits)
-                        showProfileEdits(q.pubkey);
-                    else
-                        showProfile(q.pubkey, sub_page);
-                }
+      try {
+        console.log(id);
+        const r = tools.nip19.decode(id);
+        const q = r.data;
+
+        console.log(r.type);
+        if (r.type == "note") {
+          showPost(q, sub_page);
+        } else if (r.type == "npub") {
+          // console.log("pubkey", q, "edits", edits);
+          if (edits) showProfileEdits(q);
+          else showProfile(q, sub_page);
+        } else if (r.type == "nevent") {
+          console.log("nevent", q);
+          showPost(q.id, sub_page);
+        } else if (r.type == "nprofile") {
+          console.log("nprofile", q, "edits", edits);
+          if (edits) showProfileEdits(q.pubkey);
+          else showProfile(q.pubkey, sub_page);
+        }
 
                 return;
             } catch (e) {}
@@ -3442,23 +3448,23 @@ ${active_label}
         return "";
     }
 
-    function gotoEvent(eid) {
-        const url = new URL(window.location);
-        url.pathname = "/" + getNoteId(eid);
-        url.search = "";
-        pushUrl(url);
-        showPost(eid);
-        scrollTop();
-    }
+  function gotoEvent(eid) {
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", getNoteId(eid));
+    url.search = "";
+    pushUrl(url);
+    showPost(eid);
+    scrollTop();
+  }
 
-    function gotoProfile(pubkey) {
-        const url = new URL(window.location);
-        url.pathname = "/" + getNpub(pubkey);
-        url.search = "";
-        pushUrl(url);
-        showProfile(pubkey);
-        scrollTop();
-    }
+  function gotoProfile(pubkey) {
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", getNpub(pubkey));
+    url.search = "";
+    pushUrl(url);
+    showProfile(pubkey);
+    scrollTop();
+  }
 
     function onEventClick(e) {
         if (e.target.nodeName != "A")
@@ -3714,14 +3720,18 @@ ${active_label}
         if (dp > new Date("2023-01-01").getTime())
             previous = formatDate(dp);
 
-        if (previous)
-            html += `
- <div class='col-auto'>
-  <a class='btn btn-outline-primary previous' href='/trending/${type}/${previous}' data-date='${previous}'>&larr; Previous day</a>
- </div>
+    if (previous)
+      //       html += `
+      //  <div class='col-auto'>
+      //   <a class='btn btn-outline-primary previous' href='/trending/${type}/${previous}' data-date='${previous}'>&larr; Previous day</a>
+      //  </div>
+      // `;
+      html += `
+<div class='col-auto'>
+ <a class='btn btn-outline-primary previous' href='index.html?viewParam=trending&viewValue=${type}&viewDate=${previous}' data-date='${previous}'>&larr; Previous day</a>
+</div>
 `;
-
-        html += `
+    html += `
  <div class='col-auto'>
   <div class="input-group date">
    <input type="text" class="form-control" value='${date}'>
@@ -3729,11 +3739,16 @@ ${active_label}
   </div>
  </div>
 `;
-        if (next)
-            html += `
- <div class='col'>
-  <a class='btn btn-outline-primary next' href='/trending/${type}/${next}' data-date='${next}'>Next day &rarr;</a>
- </div>
+    if (next)
+      //       html += `
+      //  <div class='col'>
+      //   <a class='btn btn-outline-primary next' href='/trending/${type}/${next}' data-date='${next}'>Next day &rarr;</a>
+      //  </div>
+      // `;
+      html += `
+<div class='col'>
+ <a class='btn btn-outline-primary next' href='index.html?viewParam=trending&viewValue=${type}&viewDate=${next}' data-date='${next}'>Next day &rarr;</a>
+</div>
 `;
         html += `
 </div>`;
@@ -3758,14 +3773,25 @@ ${active_label}
  <b>${monthNames[d.getMonth()]}:</b>
 </div><div class='col'>
 `;
-        for (let i = 1; i <= md.getDate (); i++) {
-            const dt = formatDate(new Date(Date.UTC(d.getFullYear(), d.getMonth(), i)))
-            const cur = i == d.getDate();
-            html += ` <a class='btn btn-sm btn-outline-${cur ? "secondary" : "primary"} text-center dates' 
-data-date='${dt}' href='/trending/${type}/${dt}' style='width: 2.5em;'>${i}</a>`;
-            if (i == 15) html += "<br>";
-        }
-        html += `
+    for (let i = 1; i <= md.getDate(); i++) {
+      const dt = formatDate(
+        new Date(Date.UTC(d.getFullYear(), d.getMonth(), i))
+      );
+      const cur = i == d.getDate();
+
+      //       html += ` <a class='btn btn-sm btn-outline-${
+      //         cur ? "secondary" : "primary"
+      //       } text-center dates'
+      // data-date='${dt}' href='/trending/${type}/${dt}' style='width: 2.5em;'>${i}</a>`;
+      //       if (i == 15) html += "<br>";
+      //     }
+      html += ` <a class='btn btn-sm btn-outline-${
+        cur ? "secondary" : "primary"
+      } text-center dates' 
+data-date='${dt}' href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}' style='width: 2.5em;'>${i}</a>`;
+      if (i == 15) html += "<br>";
+    }
+    html += `
 </div></div>`;
 
         const mm = new Date(
@@ -3777,13 +3803,22 @@ data-date='${dt}' href='/trending/${type}/${dt}' style='width: 2.5em;'>${i}</a>`
         html += `
 <div class='row mb-1'><div class='col'>
 <b>${d.getFullYear()}:</b>`;
-        for (let i = 0; i <= mm.getMonth (); i++) {
-            const dt = formatDate(new Date(Date.UTC(d.getFullYear(), i)));
-            const cur = i == d.getMonth ();
-            html += ` <a class='btn btn-sm btn-outline-${cur ? "secondary" : "primary"} dates' data-date='${dt}' 
-href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
-        }
-        html += `
+    for (let i = 0; i <= mm.getMonth(); i++) {
+      const dt = formatDate(new Date(Date.UTC(d.getFullYear(), i)));
+      const cur = i == d.getMonth();
+      //       html += ` <a class='btn btn-sm btn-outline-${
+      //         cur ? "secondary" : "primary"
+      //       } dates' data-date='${dt}'
+      // href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
+      //     }
+      html += ` <a class='btn btn-sm btn-outline-${
+        cur ? "secondary" : "primary"
+      } dates' data-date='${dt}' 
+href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
+        monthNames[i]
+      }</a>`;
+    }
+    html += `
 </div></div>`;
 
         return html;
@@ -3815,24 +3850,24 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
             });
         }
 
-        if (history)
-        {
-            html += formatTrendingHistoryFooter("profiles", date);
-        }
-        else
-        {
-            const d = new Date(Date.now ());
-            const dt = formatDate(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()-1)));
-            html += `<a href='/trending/profiles/${dt}'>See who was trending yesterday &rarr;</a>`;
-        }
+    if (history) {
+      html += formatTrendingHistoryFooter("profiles", date);
+    } else {
+      const d = new Date(Date.now());
+      const dt = formatDate(
+        new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate() - 1))
+      );
+      // html += `<a href='/trending/profiles/${dt}'>See who was trending yesterday &rarr;</a>`;
+      html += `<a href='index.html?viewParam=trending&viewValue=profiles&viewDate=${dt}'>See who was trending yesterday &rarr;</a>`;
+    }
 
-        function gotoDate(date) {
-            const url = new URL(window.location);
-            console.log(url);
-            url.pathname = "/trending/profiles/" + date;
-            pushUrl(url);
-            showTrending("profiles", date);
-        };
+    function gotoDate(date) {
+      const url = new URL(window.location);
+      // url.pathname = "/trending/profiles/" + date;
+      url.searchParams.set("viewDate", date);
+      pushUrl(url);
+      showTrending("profiles", date);
+    }
 
         const cont = history ? "#results" : "#trending-profiles";
         $(cont).html(html);
@@ -3904,11 +3939,11 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
         if (history)
             html += formatTrendingHistoryHeader(type, date);
 
-        for (const p of r[type])
-        {
-            const more_url = "/" + getNoteId(p.post.id); // formatPageUrl(p.post.id, 0, '', 'nostr');
+    for (const p of r[type]) {
+      console.log(getNoteId(p.post.id));
 
-            html += formatEvent({e: p.post, options: "no_padding"});
+      const more_url = "index.html?viewParam=" + getNoteId(p.post.id);
+      html += formatEvent({ e: p.post, options: "no_padding" });
 
             for (const t of p.threads)
             {
@@ -3923,25 +3958,23 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
             }
         }
 
+    if (history) {
+      html += formatTrendingHistoryFooter(type, date);
+    } else {
+      const d = new Date(Date.now());
+      const dt = formatDate(
+        new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate() - 1))
+      );
+      html += `<a href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>See what was trending yesterday &rarr;</a>`;
+    }
 
-        if (history)
-        {
-            html += formatTrendingHistoryFooter(type, date);
-        }
-        else
-        {
-            const d = new Date(Date.now ());
-            const dt = formatDate(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()-1)));
-            html += `<a href='/trending/${type}/${dt}'>See what was trending yesterday &rarr;</a>`;
-        }
-
-        function gotoDate(date) {
-            const url = new URL(window.location);
-            console.log(url);
-            url.pathname = `/trending/${type}/${date}`;
-            pushUrl(url);
-            showTrending(type, date);
-        };
+    function gotoDate(date) {
+      const url = new URL(window.location);
+      url.searchParams.set("viewValue", type);
+      url.searchParams.set("viewDate", date);
+      pushUrl(url);
+      showTrending(type, date);
+    }
 
         const cont = history ? "#results" : "#trending-"+type;
 
@@ -3980,9 +4013,8 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
         {
             if (!p.post || !p.post.id) continue;
 
-            const more_url = "/" + getNoteId(p.post.id); // formatPageUrl(p.post.id, 0, '', 'nostr');
-
-            html += formatEvent({e: p.post, options: "no_padding"});
+      const more_url = "index.html?viewParam=" + getNoteId(p.post.id);
+      html += formatEvent({ e: p.post, options: "no_padding" });
 
             for (const t of p.threads)
             {
@@ -4067,10 +4099,11 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 
         const pk = getBranchAttr($(e.target), 'data-pubkey');
 
-        const url = new URL(window.location);
-        url.pathname = "/" + getNpub(pk) + "/overview";
-        url.search = "";
-        pushUrl(url);
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", getNpub(pk));
+    url.searchParams.set("viewDate", "overview");
+    url.search = "";
+    pushUrl(url);
 
         getProfileOverview(pk);
         scrollTop();
@@ -4081,10 +4114,11 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 
         const eid = getBranchAttr($(e.target), 'data-eid');
 
-        const url = new URL(window.location);
-        url.pathname = "/" + getNoteId(eid) + "/overview";
-        url.search = "";
-        pushUrl(url);
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", getNoteId(eid));
+    url.searchParams.set("viewDate", "overview");
+    url.search = "";
+    pushUrl(url);
 
         getEventOverview(eid);
         scrollTop();
@@ -4095,10 +4129,11 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 
         const pk = getBranchAttr($(e.target), 'data-pubkey');
 
-        const url = new URL(window.location);
-        url.pathname = "/" + getNpub(pk) + "/zaps-received";
-        url.search = "";
-        pushUrl(url);
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", getNpub(pk));
+    url.searchParams.set("viewDate", "zaps-received");
+    url.search = "";
+    pushUrl(url);
 
         getZapsTo(pk);
         scrollTop();
@@ -4109,10 +4144,11 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 
         const eid = getBranchAttr($(e.target), 'data-eid');
 
-        const url = new URL(window.location);
-        url.pathname = "/" + getNoteId(eid) + "/zaps";
-        url.search = "";
-        pushUrl(url);
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", getNoteId(eid));
+    url.searchParams.set("sub_page", "zaps");
+    url.search = "";
+    pushUrl(url);
 
         getZapsFor(eid);
         scrollTop();
@@ -4123,10 +4159,11 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 
         const pk = getBranchAttr($(e.target), 'data-pubkey');
 
-        const url = new URL(window.location);
-        url.pathname = "/" + getNpub(pk) + "/zaps-processed";
-        url.search = "";
-        pushUrl(url);
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", getNpub(pk));
+    url.searchParams.set("viewDate", "zaps-processed");
+    url.search = "";
+    pushUrl(url);
 
         getZapsVia(pk);
         scrollTop();
@@ -4137,10 +4174,11 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 
         const pk = getBranchAttr($(e.target), 'data-pubkey');
 
-        const url = new URL(window.location);
-        url.pathname = "/" + getNpub(pk) + "/zaps-sent";
-        url.search = "";
-        pushUrl(url);
+    const url = new URL(window.location);
+    url.searchParams.set("viewParam", getNpub(pk));
+    url.searchParams.set("viewDate", "zaps-sent");
+    url.search = "";
+    pushUrl(url);
 
         getZapsBy(pk);
         scrollTop();
@@ -4264,9 +4302,12 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 
             console.log("profile stats", pk, rep);
 
-            const r = rep.stats[pk];
-
-            const npub = getNpub(pk);
+        const r = rep.stats[pk];
+        const url = new URL(window.location);
+        url.searchParams.set("viewParam", getNpub(pk));
+        pushUrl(url);
+        console.log(url, url.searchParams);
+        const npub = `index.html?viewParam=${getNpub(pk)}`;
 
             let html = `
 <div data-pubkey='${pk}'>
@@ -4285,7 +4326,7 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Posts & replies: <b>${r.pub_note_count || 0}</b></div>
 <span class='text-muted'>Total number of posts published by this profile.</span>
-<a href='/${npub}' class='stretched-link'>View</a>
+<a href='${npub}' class='stretched-link'>View</a>
 </div>
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Posts: <b>${r.pub_post_count || 0}</b></div>
@@ -4381,7 +4422,7 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Number of zaps: <b>${r?.zaps_received?.count || 0}</b></div>
 <span class='text-muted'>Number of zaps received by this profile.</span>
-<a href='/${npub}/zaps-received' class='stretched-link open-zaps-to'>View</a>
+<a href='${npub}&sub_page=zaps-received' class='stretched-link open-zaps-to'>View</a>
 </div>
 `
             if (r.zaps_received)
@@ -4426,7 +4467,7 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Number of zaps: <b>${r?.zaps_sent?.count || 0}</b></div>
 <span class='text-muted'>Number of zaps sent by this profile.</span>
-<a href='/${npub}/zaps-sent' class='stretched-link open-zaps-by'>View</a>
+<a href='${npub}&sub_page=zaps-sent' class='stretched-link open-zaps-by'>View</a>
 </div>
 `
             if (r.zaps_sent)
@@ -4475,7 +4516,7 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Number of zaps: <b>${r?.zaps_processed?.count || 0}</b></div>
 <span class='text-muted'>Number of zaps processed by this profile.</span>
-<a href='/${npub}/zaps-processed' class='stretched-link open-zaps-via'>View</a>
+<a href='${npub}&sub_page=zaps-processed' class='stretched-link open-zaps-via'>View</a>
 </div>
 `
             if (r.zaps_processed)
@@ -4540,7 +4581,7 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 
             const r = rep.stats[eid];
 
-            const note = getNoteId(eid);
+        const note = `index.html?viewParam=${getNoteId(eid)}`;
 
             let html = `
 <div data-eid='${eid}'>
@@ -4559,7 +4600,7 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Replies: <b>${r.reply_count || 0}</b></div>
 <span class='text-muted'>Number of replies to this post.</span>
-<a href='/${note}' class='stretched-link'>View</a>
+<a href='${note}' class='stretched-link'>View</a>
 </div>
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Replying profiles: <b>${r.reply_pubkey_count || 0}</b></div>
@@ -4597,7 +4638,7 @@ href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Number of zaps: <b>${r?.zaps?.count || 0}</b></div>
 <span class='text-muted'>Number of zaps received by this post.</span>
-<a href='/${note}/zaps' class='stretched-link'>View</a>
+<a href='${note}&sub_page=zaps' class='stretched-link'>View</a>
 </div>
 `
             if (r.zaps)
@@ -5128,8 +5169,8 @@ Scanning ${r.u}...
         showTrending(type);
     });
 
-    $("#button-advanced-search-open").on("click", (e) => {
-        e.preventDefault();
+  $("#button-advanced-search-open").on("click", (e) => {
+    e.preventDefault();
 
         const url = new URL(window.location);
         url.searchParams.set('advanced', 'true');
