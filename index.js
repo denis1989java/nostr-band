@@ -12,6 +12,8 @@ $(function () {
     const KIND_PEOPLE_LIST = 30000;
     const KIND_LABEL = 1985;
 
+    const LABEL_CATEGORY = "ugc";
+
     const tools = window.NostrTools;
 
     let login_pubkey = localGet("login");
@@ -2584,6 +2586,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
             const sub = {
                 kinds: [KIND_LABEL],
                 authors: [login_pubkey],
+                '#L': [LABEL_CATEGORY],
                 '#e': eids,
                 limit: 200,
             };
@@ -2783,10 +2786,10 @@ ${active_label}
         $("#sb-spinner").removeClass("d-none");
 
         // proper query
-        const q = "thread:" + event_id + " type:posts -filter:spam";
+        // const q = "thread:" + event_id + " type:posts -filter:spam";
 
-        const eq = encodeURIComponent(q);
-        const url = NOSTR_API + "method=search&count=10&q=" + eq
+        const eq = encodeURIComponent(event_id);
+        const url = NOSTR_API + "method=comments&id=" + eq 
             //	      + (ep ? "&p=" + ep : "")
         ;
 
@@ -2813,78 +2816,77 @@ ${active_label}
             // header of search results
             let html = "";
 
-            if (!r.serp.length)
+            if (!r.comments.length)
             {
                 html += "<p class='mt-4'>Nothing found :(<br>";
                 html += formatScanRelays(event_id);
-            }
-
-            // print results
-            for (const u of r.serp)
+            } 
+            else
             {
-                html += "<div class='thread-branch'>";
-                if (u.root)
-                    html += formatEvent({e: u.root});
-
-                if (u.reply_to)
-                {
-                    if (u.root)
-                        html += `
-<div class='text-muted'><small>In a thread by @${getAuthorName(u.root)}</smalL></div>
-`;
-                    html += formatEvent({e: u.reply_to, root: u.root, options: "no_offset"});
-                }
-
-                const root = u.root || u.reply_to;
-
-                if (!u.reply_to && u.root)
-                    html += `
-<div class='text-muted'><small>Replying to @${getAuthorName(u.root)}</smalL></div>
-`;
-
-                if (u.reply_to)
-                    html += `
-<div class='text-muted'><small>Replying to @${getAuthorName(u.reply_to)}</small></div>
-`;
-                html += "</div>"; // thread-branch
-
-                html += formatEvent({e: u, root, show_post: true, options: "thread_root,no_offset,main"});
-
-                let t = (u.author?.name || u.pubkey.substring(0,8)) + ": ";
-                t += u.content.substring (0, 50) + "... " + getNoteId(u.id);
-                document.title = t;
-
-                html += '<div id="serp">';
-                if (sub_page)
-                {
-                    html += "Loading...";
-                }
-                else if (u.children)
-                {
-                    html += formatEventMenu(event_id, `Replies (${u.replies})`);
-
-                    for (const c of u.children)
-                    {
-                        if (c.reply_to)
-                            html += formatEvent({e: c.reply_to, root: root || u, options: "no_offset"});
-
-                        let options = "";
-                        if (c.reply_to_id == u.id)
-                            options = "no_offset";
-                        html += formatEvent({e: c, root: root || u, options});
-
-                        if (c.children)
-                        {
-                            for (const cc of c.children)
-                                html += formatEvent({e: cc, root: root || u});
-                        }
-                    }
-                }
-                else
-                {
-                    html += formatEventMenu(event_id, `Replies (0)`);
-                }
-                html += "</div>"; // #serp
+        const u = r.comments[0];
+        html += "<div class='thread-branch'>";
+        if (u.root)
+          html += formatEvent({e: u.root});
+        
+        if (u.reply_to)
+        {
+          if (u.root)
+            html += `
+      <div class='text-muted'><small>In a thread by @${getAuthorName(u.root)}</smalL></div>
+      `;
+          html += formatEvent({e: u.reply_to, root: u.root, options: "no_offset"});
+        }
+      
+        const root = u.root || u.reply_to;
+        
+        if (!u.reply_to && u.root)
+          html += `
+      <div class='text-muted'><small>Replying to @${getAuthorName(u.root)}</smalL></div>
+      `;
+      
+        if (u.reply_to)
+          html += `
+      <div class='text-muted'><small>Replying to @${getAuthorName(u.reply_to)}</small></div>
+      `;
+        html += "</div>"; // thread-branch
+        
+        html += formatEvent({e: u, root, show_post: true, options: "thread_root,no_offset,main"});
+        
+        let t = (u.author?.name || u.pubkey.substring(0,8)) + ": ";
+        t += u.content.substring (0, 50) + "... " + getNoteId(u.id);
+        document.title = t;
+      
+        html += '<div id="serp">';
+        if (sub_page)
+        {
+          html += "Loading...";
+        }
+        else if (u.children?.length)
+        {
+          html += formatEventMenu(event_id, `Replies (${u.children.length})`);
+          
+          for (const c of u.children)
+          {
+            if (c.reply_to)
+              html += formatEvent({e: c.reply_to, root: root || u, options: "no_offset"});
+      
+            // direct children don't need offset
+            let options = "no_offset";
+            html += formatEvent({e: c, root: root || u, options});
+      
+            if (c.children)
+            {
+              for (const cc of c.children)
+          html += formatEvent({e: cc, root: root || u});
+            }
+          }
+      
+        }
+        else
+        {
+          html += formatEventMenu(event_id, `Replies (0)`);
+        }
+        html += "</div>"; // #serp
             }
 
             // set results
@@ -2906,6 +2908,10 @@ ${active_label}
             {
                 getZapsFor(event_id);
             }
+            else
+            {
+      //	getComments(event_id);
+            }
 
             if (embed) {
                 $(".main").css("visibility", "visible");
@@ -2914,6 +2920,54 @@ ${active_label}
             }
         });
     }
+
+    /*  function getComments(event_id) {
+    console.log("show post", event_id);
+    
+    $("#search-spinner").removeClass("d-none");
+
+    const eq = encodeURIComponent(event_id);
+    const url = NOSTR_API + "method=comments&id=" + eq;
+
+    $.ajax({
+      url,
+    }).fail((x, r, e) => {
+      $("#search-spinner").addClass("d-none");
+
+      toastError("Search failed: "+e);
+    }).done (r => {
+
+      // stop spinning
+      $("#search-spinner").addClass("d-none");
+
+      console.log("comments", r);
+
+      let html = "";
+
+      html += formatEventMenu(event_id, `Replies (${r.comments?.length})`);
+	  
+      for (const c of r?.comments)
+      {
+	if (c.reply_to)
+	  html += formatEvent({e: c.reply_to, root: c.root, options: "no_offset"});
+
+	let options = "";
+	if (c.reply_to_id == event_id)
+	  options = "no_offset";
+	html += formatEvent({e: c, root: c.root, options});
+
+	if (c.children)
+	{
+	  for (const cc of c.children)
+	    html += formatEvent({e: cc, root: c.root});
+	}
+      }
+
+      $("#serp").html(html);
+      
+    });    
+  }
+*/
 
     function formatProfileMenu(pubkey, active_label)
     {
@@ -5368,6 +5422,7 @@ Scanning ${r.u}...
         const sub = {
             kinds: [KIND_LABEL],
             authors: [pubkey],
+            '#L': [LABEL_CATEGORY],
             limit: 200,
         };
 
@@ -5403,6 +5458,7 @@ Scanning ${r.u}...
                 authors: [login_pubkey],
                 '#e': [target],
                 '#l': [label],
+                '#L': [LABEL_CATEGORY],
                 limit: 1,
             };
 
@@ -5429,7 +5485,8 @@ Scanning ${r.u}...
                 kind: KIND_LABEL,
                 content: "",
                 tags: [
-                    ["l", label],
+                    ["l", label, LABEL_CATEGORY],
+                    ["L", LABEL_CATEGORY],
                     ["e", target, "wss://relay.nostr.band"],
                 ],
             };
