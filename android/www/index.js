@@ -2792,9 +2792,9 @@ ${active_label}
 `;
     }
 
-  function showPost(event_id, sub_page) {
-    setRobots(true);
-    setQuery("");
+    function showPost(event_id, sub_page) {
+        setRobots(true);
+        setQuery('')
 
         console.log("show post", event_id);
 
