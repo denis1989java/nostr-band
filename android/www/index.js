@@ -414,7 +414,7 @@ Let's scan all known relays right from your browser:<br>
 
     const npub = getNpub(u.pubkey);
     const url = new URL(window.location);
-    url.searchParams.set("viewParam", npub);
+    // url.searchParams.set("viewParam", npub);
     pushUrl(url);
     const note = getNoteId(u.id);
     const post_href = "/" + getNoteId(u.id);
@@ -3331,7 +3331,6 @@ ${active_label}
       params.viewParam &&
       (params.viewParam.startsWith("note1") ||
         params.viewParam.startsWith("npub1") ||
-        params.viewParam.startsWith("note1") ||
         params.viewParam.startsWith("nevent1") ||
         params.viewParam.startsWith("nprofile1"))
     ) {
