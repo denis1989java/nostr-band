@@ -7,6 +7,7 @@ $(function () {
     const EMBED_VERSION = "0.1.12";
 
     const KIND_META = 0;
+    const KIND_NOTE = 1;
     const KIND_CONTACT_LIST = 3;
     const KIND_DELETE = 5;
     const KIND_PEOPLE_LIST = 30000;
@@ -35,7 +36,10 @@ $(function () {
     let on_nostr_handlers = [];
     let nostr_enabled = false;
 
+    let cordovaUrl = null;
+
     async function addOnNostr(handler) {
+
         if (nostr_enabled)
             await handler();
         else
@@ -78,32 +82,75 @@ $(function () {
 
     }
 
+    function attachLinkHandlers(sel) {
+        sel = sel || "body";
+
+        $(sel).find("a").each(function (i, el) {
+            const e = $(el);
+            if (e.attr("_h") == "1" || e.attr("href") == "#")
+                return;
+
+            e.attr("_h", "1");
+            e.on("click", (ev) => {
+                const href = e[0].href;
+                console.log("ev href", href);
+                let url = null;
+                try {
+                    url = new URL(href);
+                } catch (ex) {
+                    ev.preventDefault();
+                    console.log(ex);
+                    toastError("Bad url");
+                    return;
+                }
+
+                const base = new URL(window.location.href);
+                if (url.origin === base.origin) {
+                    if (url.pathname.endsWith("/about.html")
+                        || url.pathname.endsWith("/tos.html")
+                        || url.pathname.endsWith("/privacy.html")) {
+
+                        if (window.cordova) {
+                            ev.preventDefault();
+
+                            const path = url.pathname;
+                            url = base;
+                            url.pathname = url.pathname.substring(0, url.pathname.lastIndexOf("/")) + path;
+                            console.log("about", url);
+                            document.location.href = url.href;
+                            return;
+                        }
+
+                    } else {
+                        ev.preventDefault();
+                        pushUrl(url);
+                        updateParamsState();
+                        if (e.hasClass("scroll-top"))
+                            scrollTop();
+                    }
+                } else {
+                    console.log("external link", ev.target.href);
+                }
+            });
+        });
+    }
+
     // https://gist.github.com/kares/956897?permalink_comment_id=2341811#gistcomment-2341811
     function deParams(str) {
-        return (str || document.location.search).replace(/(^\?)/,'')
+        return (str || document.location.search)
+            .replace(/(^\?)/,'')
             .split("&").map(function(n){return n = n.split("="),this[n[0]] = n[1],this}.bind({}))[0];
     }
 
-  function formatPageUrl(q, p, type) {
-    console.log(q, p, type);
-    const eq = encodeURIComponent(q);
-    const ep = encodeURIComponent(p ? p : "");
-    const et = encodeURIComponent(type ? type : "");
-    if (type === "nostr") {
-      return `index.html?viewParam=${q}`;
+    function formatPageUrl(q, p, type) {
+        const eq = encodeURIComponent(q);
+        const ep = encodeURIComponent(p ? p : '');
+        const et = encodeURIComponent(type ? type : '');
+        return "/?q=" + eq
+            + (ep ? "&p=" + ep : "")
+            + (et ? "&type=" + et : "")
+            ;
     }
-    if (type === "zaps") {
-      return (
-        "index.html?q=" +
-        eq +
-        (ep ? "&p=" + ep : "") +
-        (et ? "&type=" + et : "")
-      );
-    }
-    return (
-      "index.html?q=" + eq + (ep ? "&p=" + ep : "") + (et ? "&type=" + et : "")
-    );
-  }
 
     async function copyToClip(data) {
         try
@@ -143,22 +190,28 @@ $(function () {
             return "";
     }
 
-    function formatThumbUrl(pubkey, type, big)
-    {
+    function formatThumbUrl(pubkey, type, big) {
         const size = big ? 192 : 64;
         return "https://media.nostr.band/thumbs/"
             + pubkey.substring(pubkey.length - 4) + "/"
             + pubkey + "-" + type + "-" + size;
     }
 
-    function getNpub(pubkey)
-    {
+    function getNpub(pubkey) {
         return tools.nip19.npubEncode(pubkey);
     }
 
-    function getNoteId(id)
-    {
+    function getNoteId(id) {
         return tools.nip19.noteEncode(id);
+    }
+
+    function getNaddr(e) {
+        return tools.nip19.naddrEncode({
+            identifier: e.d_tag || "",
+            pubkey: e.pubkey,
+            kind: e.kind,
+            relays: [RELAY]
+        });
     }
 
     window.replaceImgSrc = function (img)
@@ -172,12 +225,12 @@ $(function () {
     {
         return getProfileName(u.pubkey, u.author);
 
-//	let author = u.pubkey?.substring(0, 8);
-//	if (u.author?.name)
-//	    author = u.author.name;
-//	if (u.author?.display_name)
-//	    author = u.author.display_name;
-//	return author;
+        //	let author = u.pubkey?.substring(0, 8);
+        //	if (u.author?.name)
+        //	    author = u.author.name;
+        //	if (u.author?.display_name)
+        //	    author = u.author.display_name;
+        //	return author;
     }
 
     function formatScanRelays(q)
@@ -189,7 +242,7 @@ Let's scan all known relays right from your browser:<br>
 </p>
 <p id='scan-relays-status'></p>
 <p id='scan-relays-results'></p>
-`;
+    `;
     }
 
     function formatContent(e, max_size) {
@@ -261,30 +314,30 @@ Let's scan all known relays right from your browser:<br>
             //	    console.log(m, segment);
             content += segment;
 
-      // append link
-      const link = e.links[m.i];
-      let href = link.uri;
-      if (link.type == "pubkey") {
-        href = `index.html?viewParam=${getNpub(link.uri)}`;
-      } else if (link.type == "event")
-        href = "index.html?viewParam=" + getNoteId(link.uri);
-      else if (link.type == "hashtag")
-        href =
-          "index.html?q=" +
-          encodeURIComponent((link.uri.startsWith("#") ? "" : "#") + link.uri);
-      else if (link.type == "url") href = link.uri;
-      const ext = link.type == "url";
-      let label = link.label;
-      if (link.type == "url") {
-        label =
-          link.uri.length > 40
-            ? link.uri.substring(0, 30) +
-              "..." +
-              link.uri.substring(link.uri.length - 10)
-            : link.uri;
-      } else if (!label) {
-        label = link.uri;
-      }
+            // append link
+            const link = e.links[m.i];
+            let href = link.uri;
+            if (link.type == "pubkey")
+                href = "/" + getNpub(link.uri);
+            else if (link.type == "event")
+                href = "/" + getNoteId(link.uri);
+            else if (link.type == "hashtag")
+                href = "/?q=" + encodeURIComponent((link.uri.startsWith("#") ? "" : "#") + link.uri);
+            else if (link.type == "url")
+                href = link.uri;
+
+            const ext = link.type == "url";
+            let label = link.label;
+            if (link.type == "url")
+            {
+                label = (link.uri.length > 40)
+                    ? link.uri.substring(0, 30) + "..." + link.uri.substring(link.uri.length - 10)
+                    : link.uri;
+            }
+            else if (!label)
+            {
+                label = link.uri;
+            }
 
             if (!link.label && link.type == "event")
             {
@@ -336,12 +389,12 @@ Let's scan all known relays right from your browser:<br>
 <div class="play" style='${embed ? "" : "display: none"}'>
     <div class="container ps-0 pe-0">
         <div class="row gallery">
-`;
+	    `;
                     }
 
                     gallery += `
 <div class="col-sm-12 col-md-4 col-lg-3"><a href="${link.uri}" target='_blank' data-toggle="lightbox" data-gallery="${e.id}"><img class="img-fluid" src="${link.uri}"></a></div>
-`;
+	  `;
                 }
             }
 
@@ -372,6 +425,14 @@ Let's scan all known relays right from your browser:<br>
         return n;
     }
 
+    function isReplaceable(u) {
+        return u.kind == KIND_META
+            || u.kind == KIND_CONTACT_LIST
+            || u.kind >= 10000 && u.kind < 20000
+            || u.kind >= 30000 && u.kind < 40000
+            ;
+    }
+
     function formatEvent(req) {
         let u = req.e;
         if (!u.pubkey)
@@ -397,7 +458,9 @@ Let's scan all known relays right from your browser:<br>
 
         const author = getAuthorName(u);
 
-        const max_size = thread_root ? 10000 : 1000;
+        const max_size = thread_root
+            ? (u.kind == KIND_NOTE ? 10000 : 50000)
+            : 1000;
         let content = "";
         if (u.type == "long_post" && u.summary)
             content = `<p class='mt-1'><i>${san(u.summary)}</i></p>`;
@@ -410,24 +473,19 @@ Let's scan all known relays right from your browser:<br>
 
         const offset = (root || false) && !no_offset;
 
-        const thread_url = formatPageUrl(u.id, 0, '', 'nostr');
+        //    const thread_url = formatPageUrl(u.id, 0, '', 'nostr');
 
-    const npub = getNpub(u.pubkey);
-    const url = new URL(window.location);
-    url.searchParams.set("viewParam", npub);
-    pushUrl(url);
-    const note = getNoteId(u.id);
-    const post_href = "/" + getNoteId(u.id);
-    const profile_href = url;
-    // (u.type == "long_post" ? getNaddr(u) : getNoteId(u.id));
-    const relay = "wss://relay.nostr.band";
-    const nprofile = tools.nip19.nprofileEncode({
-      pubkey: u.pubkey,
-      relays: [relay],
-    });
-    const nevent = tools.nip19.neventEncode({ id: u.id, relays: [relay] });
-    // FIXME need d_tag!!!
-    //    const naddr = tools.nip19.naddrEncode({id: u.id, relays: [relay]});
+        const npub = getNpub(u.pubkey);
+        const profile_href = "/" + npub;
+
+        const repl = isReplaceable (u);
+        const relay = "wss://relay.nostr.band";
+        const nprofile = tools.nip19.nprofileEncode({pubkey: u.pubkey, relays: [relay]});
+        const nevent = tools.nip19.neventEncode({id: u.id, relays: [relay]});
+        const note = getNoteId(u.id);
+        const naddr = getNaddr(u);
+        const eid = repl ? naddr : note;
+        const post_href = "/" + eid;
 
         const profile_btns = `
 <span class='profile-buttons'>
@@ -435,34 +493,45 @@ Let's scan all known relays right from your browser:<br>
 <span class="profile-menu">
   <button class="btn btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"></button>
   <ul class="dropdown-menu">
-    <li><button class="dropdown-item open-nostr-profile">Go to app...</button></li>
+    <li><button class="dropdown-item open-nostr-profile">Open</button></li>
     <li><button class="dropdown-item copy-to-clip" data-copy='${npub}'>Copy npub</button></li>
     <li><button class="dropdown-item copy-to-clip" data-copy='${nprofile}'>Copy nprofile</button></li>
     <li><button class="dropdown-item copy-to-clip" data-copy='${u.pubkey}'>Copy HEX</button></li>
   </ul>
 </span>
 </span>
-`;
+    `;
 
         let relays = "";
         for (const r of u.relays)
             relays += (relays ? "," : "") + r;
 
         let btns = "";
-        if (!req.show_post)
+        if (!req.show_post) {
             btns += `
 <span class='event-buttons'>
 <span class="event-menu">
   <button class="btn btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"></button>
   <ul class="dropdown-menu">
-    <li><button class="dropdown-item open-nostr-event">Go to app...</button></li>
-    <li><button class="dropdown-item copy-to-clip" data-copy='${note}'>Copy note ID</button></li>
+    <li><button class="dropdown-item open-nostr-event">Open</button></li>
+      `;
+            if (repl) {
+                btns += `
+    <li><button class="dropdown-item copy-to-clip" data-copy='${naddr}'>Copy naddr</button></li>
+	`;
+            } else {
+                btns += `
     <li><button class="dropdown-item copy-to-clip" data-copy='${nevent}'>Copy nevent</button></li>
+	`;
+            }
+            btns += `
+    <li><button class="dropdown-item copy-to-clip" data-copy='${note}'>Copy note ID</button></li>
     <li><button class="dropdown-item copy-to-clip" data-copy='${u.id}'>Copy HEX</button></li>
   </ul>
 </span>
 </span>
-`;
+      `;
+        }
         // ${no_reply ? '' : "<small><a href='#' class='nostr-reply'>reply</a></small>"}
 
         const upvotes = u.upvotes - u.downvotes;
@@ -471,104 +540,104 @@ Let's scan all known relays right from your browser:<br>
 
         const title = u.title ? `
 <a class="text-muted nostr-event-link" href='${post_href}'><h4 class='mt-2' ${style}>${san(u.title)}</h4></a>
-` : "";
+    ` : "";
 
         let html = `
-<div class='row nostr-serp-url' 
- data-eid='${san(u.id)}' 
- data-root='${san(root ? root.id : u.id)}' 
- data-relay='${u.relays[0]}' 
- data-root-relay='${root ? root?.relays[0] : "-1"}' 
- data-pubkey='${u.pubkey}'
- id='nostr-${san(u.id)}'
- ${style}
- >
-<div class='col ${main ? "main" : ""}'><div class='card mb-3 no-border ${offset ? "ms-5" : ""}'>
-<div class='card-body' style='padding-left: 0; ${no_padding ? "padding-top: 0; padding-bottom: 0" : ""}'>
-<div class="card-subtitle text-muted" style="overflow:hidden;white-space:nowrap;"></div>
-<div class='card-title mb-0' style='font-size: larger'>
-<a class='nostr-profile-link' href='${profile_href}'>
-<img style='width: ${psize}px; height: ${psize}px' 
- data-src='${san(img)}' src='${thumb}' 
- class="profile ${img ? '' : 'd-none'}" onerror="javascript:replaceImgSrc(this)"></a> 
-<a class="nostr-profile-link" href='${profile_href}'>${san(author)}</a> ${profile_btns} 
-</div>
-<p class="card-text mb-0 ${req.show_post ? "" : "open-event-text"}">
-${title}
-${content}
-</p>
-<div class="card-text event-id">
-`;
+      <div class='row nostr-serp-url' 
+	   data-eid='${eid}' 
+	   data-root='${san(root ? root.id : u.id)}' 
+	   data-relay='${u.relays[0]}' 
+	   data-root-relay='${root ? root?.relays[0] : "-1"}' 
+	   data-pubkey='${u.pubkey}'
+	   id='nostr-${san(u.id)}'
+	${style}
+	>
+	<div class='col ${main ? "main" : ""}'><div class='card mb-3 no-border ${offset ? "ms-5" : ""}'>
+	  <div class='card-body' style='padding-left: 0; ${no_padding ? "padding-top: 0; padding-bottom: 0" : ""}'>
+	    <div class="card-subtitle text-muted" style="overflow:hidden;white-space:nowrap;"></div>
+	    <div class='card-title mb-0' style='font-size: larger'>
+	      <a class='nostr-profile-link' href='${profile_href}'>
+		<img style='width: ${psize}px; height: ${psize}px' 
+		     data-src='${san(img)}' src='${thumb}' 
+		     class="profile ${img ? '' : 'd-none'}" onerror="javascript:replaceImgSrc(this)"></a> 
+	      <a class="nostr-profile-link" href='${profile_href}'>${san(author)}</a> ${profile_btns} 
+	    </div>
+	    <p class="card-text mb-0 ${req.show_post ? "" : "open-event-text"}">
+	      ${title}
+	      ${content}
+	    </p>
+	    <div class="card-text event-id">
+    `;
         if (!req.show_post)
         {
             html += `
 <small class='text-muted'>
-`;
+      `;
             if (u.zap_amount)
                 html += `
 <span class='nostr-zaps me-2'><i class="bi bi-lightning"></i> ${formatZapAmount(u.zap_amount)}</span>
-`;
+	`;
             if (u.replies)
                 html += `
-<a href='${thread_url}' class='nostr-thread me-2'><i class="bi bi-chat"></i> ${u.replies}</a>
-`;
+<span class='nostr-thread me-2'><i class="bi bi-chat"></i> ${u.replies}</span>
+	`;
             if (u.reposts)
                 html += `
 <span class='nostr-reposts me-2'><i class="bi bi-arrow-repeat"></i> ${u.reposts}</span>
-`;
+	`;
             if (u.upvotes)
                 html += `
 <span class='nostr-reactions me-2'><i class="bi bi-hand-thumbs-up"></i> ${upvotes}</span>
-`;
+	`;
             html += `
 </small>
-`;
+      `;
         }
         html += `
 <small><a class="text-muted nostr-event-link" href='${post_href}'>${tm}</a></small>
 ${btns}
 </div>
-`
+    `
         if (req.show_post)
         {
             html += `
 <div style='font-size: smaller'>
-`;
+      `;
             if (u.zap_amount)
                 html += `
-<a href='/${note}/zaps' class="inline-link open-zaps-for me-3"><nobr><b>${formatZapAmount(u.zap_amount)}</b> sats</nobr></a>
-`;
+<a href='/${eid}/zaps' class="inline-link me-3"><nobr><b>${formatZapAmount(u.zap_amount)}</b> sats</nobr></a>
+	`;
 
             if (upvotes)
                 html += `
 <span class="nostr-likes me-3"><b>${upvotes}</b> likes</span>
-`;
+	`;
 
             if (u.reposts)
                 html += `
 <span class="nostr-reposts me-3"><b>${u.reposts}</b> reposts</span>
-`;
+	`;
 
             if (u.relays.length)
                 html += `
 <span class="nostr-relays me-3 show-relays" data-relays="${relays}"><b>${u.relays.length}</b> relays</span>
-`;
+	`;
 
             html += `
 </div>
-`;
+      `;
 
             if (embed)
             {
                 html += `
 <div><small class="text-muted" style='font-size: 12px'>Embed by <a target='_blank' href='https://nostr.band' style='color: rgb(33,37,41)'>Nostr.Band</a>.</small></div>
-`;
+	`;
             }
 
             html += `
 <div class='mt-2 main-controls'>
 <button type="button" class="btn btn-outline-secondary open-nostr-event me-1"><i class="bi bi-box-arrow-up-right"></i> Open</button>
-`;
+      `;
 
             html += `
 <div class="btn-group event-labels">
@@ -578,7 +647,7 @@ ${btns}
   <ul class="dropdown-menu">
   </ul>
 </div>
-`;
+      `;
 
             html += `
 <div class="btn-group">
@@ -591,22 +660,31 @@ ${btns}
     <li><button class="dropdown-item embed-nostr-event">
       <i class="bi bi-file-earmark-plus"></i> Embed</button></li>
     <li><hr class="dropdown-divider"></li>
-    <li><button class="dropdown-item copy-to-clip" data-copy='${note}'>Copy note ID</button></li>
+      `;
+            if (repl) {
+                html += `
+    <li><button class="dropdown-item copy-to-clip" data-copy='${naddr}'>Copy naddr</button></li>
+	`;
+            } else {
+                html += `
     <li><button class="dropdown-item copy-to-clip" data-copy='${nevent}'>Copy nevent</button></li>
+	`;
+            }
+            html += `
+    <li><button class="dropdown-item copy-to-clip" data-copy='${note}'>Copy note ID</button></li>
     <li><button class="dropdown-item copy-to-clip" data-copy='${u.id}'>Copy id</button></li>
     <li><hr class="dropdown-divider"></li>
     <li><button class="dropdown-item show-relays" data-relays="${relays}">View relays</button></li>
-    <li><button class="dropdown-item show-event-json" data-eid='${u.id}'>View JSON</button></li>
+    <li><button class="dropdown-item show-event-json" data-id='${u.id}'>View JSON</button></li>
   </ul>
 </div>
 </div>
       `;
 
-
         }
         html += `
 </div></div></div></div>
-`;
+    `;
 
         return html;
     }
@@ -668,7 +746,7 @@ ${btns}
 <small class='text-muted'>
 <a class="twitter" href='https://twitter.com/${p.twitter.handle}' target='_blank'><nobr><i class="bi bi-twitter"></i>${p.twitter.handle}</nobr></a>
 </small>
-`;
+      `;
         }
 
         const psize = show_profile ? 128 : (req.trending ? 90 : 54);
@@ -680,7 +758,7 @@ ${btns}
         const profile_href = "/" + npub;
         const website = p.website.startsWith ("https://") ? `
 <small><a href='${p.website}' class='website-link' target='_blank'>${p.website}</a></small>
-` : '';
+    ` : '';
 
         let relays = "";
         for (const r of p.relays)
@@ -690,7 +768,7 @@ ${btns}
 <small class='text-muted me-2 ${nip05 ? '' : 'd-none'}'>
 <span><nobr>${nip05}</nobr></span> 
 </small>
-`;
+    `;
         // <a class="nostr-profile-link" href='${profile_href}'><nobr>${nip05}</nobr></a>
         // <a class="nip05" href='${nip05_url}' target='_blank'>
 
@@ -708,22 +786,22 @@ ${btns}
   </ul>
 </span>
 </span>
-`;
+      `;
 
         const keys = `
 <small class='text-muted pubkey-npub' data-pubkey='${p.pubkey}'><nobr><i class="bi bi-key"></i> <span class='short'>${npub_short}</span><span class='long'>${npub_short}</span></nobr></small><br>
-`;
+    `;
 
         let zaps = "";
         if (p.zap_amount)
             zaps += `
 <small><b>${formatZapAmount(p.zap_amount)}</b> sats received</small>
-`;
+      `;
 
         if (handle && show_profile)
             handle = `
 <small class='text-muted'>@${handle}</small>
-`;
+      `;
 
         let ln = '';
         function formatLN(v, u)
@@ -744,11 +822,11 @@ ${btns}
             if (lnurl)
                 btn = `
 <button class="btn btn-sm btn-outline-secondary copy-to-clip" style='padding: 1px' data-copy="${v}"><i class="bi bi-clipboard"></i></button>
-`;
+	`;
 
             ln += `
 <small class='text-muted ln-address'>🗲 ${vs} ${btn} ${u ? "(" + u + ")" : ""}</small><br>
-`;
+      `;
         }
 
         formatLN(p.lud16, p.lud16_url);
@@ -766,43 +844,43 @@ ${btns}
         //`;
 
         let html = `
-<div class='row nostr-profile main' 
- data-pubkey='${san(p.pubkey)}' 
- data-relay='${p.relays[0]}' 
- id='nostr-${san(p.pubkey)}'
- ${show_profile ? 'style="font-size: 1.3em"' : ""}
->
-${rank}
-<div class='col'><div class='card mb-1 no-border'>
-<div class='card-body' style='padding-left: 0'>
-<div class="card-subtitle text-muted" style="overflow:hidden;white-space:nowrap;"><small></small></div>
-<div class='card-title mb-0'>
-<div class="row gx-2"><div class='col-auto'>
-<a class='${show_profile ? '' : 'nostr-profile-link'}' href='${show_profile ? img : profile_href}'
-  ${show_profile ? 'target="_blank"' : ''}>
-<img style='width: ${psize}px; height: ${psize}px' 
- data-src='${san(img)}' src='${thumb}' onerror="javascript:replaceImgSrc(this)"
-class="profile ${img ? '' : 'd-none'}"></a>
-</div>
-<div class='col'><a class="nostr-profile-link me-1"  href='${profile_href}'>${san(name)}</a>
-${show_profile || req.trending ? btns + "<br>" : ""}
-<span class="${show_profile ? "" : "open-profile-text"}">
-${handle}
-${nip}
-${twitter}${show_profile && twitter ? "<br>" : ""}
-${show_profile || req.trending ? keys : ""}
-${show_profile ? ln : ""}
-${show_profile ? website : ""}
-${req.trending ? zaps : ""}
-</span>
-${show_profile || req.trending ? "" : btns}
-<span class="${show_profile ? "" : "open-profile-text"}">
-${show_profile || req.trending ? "" : "<br>" + zaps}
-</span>
-</div></div>
-</div>
-<p class="card-text mt-1 mb-1 ${show_profile ? "" : "open-profile-text"}">${san(p.about)}</p>
-`
+      <div class='row nostr-profile main' 
+	   data-pubkey='${san(p.pubkey)}' 
+	   data-relay='${p.relays[0]}' 
+	   id='nostr-${san(p.pubkey)}'
+	${show_profile ? 'style="font-size: 1.3em"' : ""}
+	>
+	${rank}
+	<div class='col'><div class='card mb-1 no-border'>
+	  <div class='card-body' style='padding-left: 0'>
+	    <div class="card-subtitle text-muted" style="overflow:hidden;white-space:nowrap;"><small></small></div>
+	    <div class='card-title mb-0'>
+	      <div class="row gx-2"><div class='col-auto'>
+		<a class='${show_profile ? '' : 'nostr-profile-link'}' href='${show_profile ? img : profile_href}'
+		  ${show_profile ? 'target="_blank"' : ''}>
+		  <img style='width: ${psize}px; height: ${psize}px' 
+		       data-src='${san(img)}' src='${thumb}' onerror="javascript:replaceImgSrc(this)"
+		       class="profile ${img ? '' : 'd-none'}"></a>
+	      </div>
+		<div class='col'><a class="nostr-profile-link me-1"  href='${profile_href}'>${san(name)}</a>
+		  ${show_profile || req.trending ? btns + "<br>" : ""}
+		  <span class="${show_profile ? "" : "open-profile-text"}">
+		    ${handle}
+		    ${nip}
+		    ${twitter}${show_profile && twitter ? "<br>" : ""}
+		    ${show_profile || req.trending ? keys : ""}
+		    ${show_profile ? ln : ""}
+		    ${show_profile ? website : ""}
+		    ${req.trending ? zaps : ""}
+		  </span>
+		  ${show_profile || req.trending ? "" : btns}
+		  <span class="${show_profile ? "" : "open-profile-text"}">
+		    ${show_profile || req.trending ? "" : "<br>" + zaps}
+		  </span>
+		</div></div>
+	    </div>
+	    <p class="card-text mt-1 mb-1 ${show_profile ? "" : "open-profile-text"}">${san(p.about)}</p>
+    `
         //  + "<small class='text-muted profile-pubkey'>"+p.pubkey+"</small>"
 
         if (edits)
@@ -811,37 +889,46 @@ ${show_profile || req.trending ? "" : "<br>" + zaps}
 <div class="card-text event-id" style='padding: 0; line-height: 17px'>
 <small class="text-muted"><span class='me-2'><nobr>Written: ${last_tm}</nobr></span></small>
 </div>
-`;
+      `;
         }
         else
         {
             //${show_profile || req.trending ? "" : '<button type="button" class="btn btn-outline-secondary btn-sm me-2 follow-button"><span class="label">Follow</span></button>'}
 
-            html += `
-<div>
-<span class="${show_profile ? "following" : "open-profile-text"} me-2"><b>${p.following_count}</b> Following</span>
-<span class="${show_profile ? "followed" : "open-profile-text"} me-2"><b>${p.followed_count}</b> Followers${new_followers_count ? " <sup><b>+"+new_followers_count+"</b></sup>" : ""}</span>
-`;
-            if (show_profile)
-            {
+            html += `<div>`;
+            if (!show_profile) {
+                html += `
+<span class="open-profile-text me-2"><b>${p.following_count}</b> Following</span>
+<span class="open-profile-text me-2"><b>${p.followed_count}</b> Followers${new_followers_count ? " <sup><b>+"+new_followers_count+"</b></sup>" : ""}</span>
+	`;
+            }
+
+            if (show_profile) {
+                const following_query = "following:"+npub;
+                const following_url = formatPageUrl(following_query, 0, "profiles");
+                html += `
+<a href='${following_url}' class="inline-link me-2"><nobr><b>${p.following_count}</b> Following</nobr></a>
+<span class="followed me-2"><nobr><b>${p.followed_count}</b> Followers</nobr></span>
+	`;
+
                 html += "<br>";
                 if (p.zap_amount)
                     html += `
-<a href='/${npub}/zaps-received' class="inline-link open-zaps-to me-2"><nobr><b>${formatZapAmount(p.zap_amount)}</b> sats received</nobr></a>
-`;
+<a href='/${npub}/zaps-received' class="inline-link me-2"><nobr><b>${formatZapAmount(p.zap_amount)}</b> sats received</nobr></a>
+	  `;
                 if (p.zap_amount_sent)
                     html += `
-<a href='/${npub}/zaps-sent' class="inline-link open-zaps-by me-2"><nobr><b>${formatZapAmount(p.zap_amount_sent)}</b> sats sent</nobr></a>
-`;
+<a href='/${npub}/zaps-sent' class="inline-link me-2"><nobr><b>${formatZapAmount(p.zap_amount_sent)}</b> sats sent</nobr></a>
+	  `;
                 if (p.zap_amount_processed)
                     html += `
-<a href='/${npub}/zaps-processed' class="inline-link open-zaps-via me-2"><nobr><b>${formatZapAmount(p.zap_amount_processed)}</b> sats processed</nobr></a>
-`;
+<a href='/${npub}/zaps-processed' class="inline-link me-2"><nobr><b>${formatZapAmount(p.zap_amount_processed)}</b> sats processed</nobr></a>
+	  `;
 
             }
             html += `
 </div>
-`;
+      `;
             if (!req.trending)
             {
                 html += `
@@ -850,18 +937,18 @@ ${show_profile || req.trending ? "" : "<br>" + zaps}
                 if (show_profile)
                     html += `
 <span class='me-2'><nobr>Last active: ${last_tm}</nobr></span> 
-`;
+	  `;
                 html += `
 <nobr>Created: ${first_tm}</nobr></small>
 </div>
-`;
+	`;
             }
 
             if (embed)
             {
                 html += `
 <div><small class="text-muted" style='font-size: 12px'>Embed by <a target='_blank' href='https://nostr.band' style='color: rgb(33,37,41)'>Nostr.Band</a>.</small></div>
-`;
+	`;
             }
 
             // if (show_profile || req.trending)
@@ -869,16 +956,16 @@ ${show_profile || req.trending ? "" : "<br>" + zaps}
                 const bsize = req.trending ? "btn-sm" : "";
                 html += `
 <div class="mt-2 main-controls">
-`;
+	`;
                 if (!show_profile || req.trending)
                     html += `
 <button type="button" class="btn ${bsize} btn-outline-secondary open-profile-text"><i class="bi bi-zoom-in"></i> View</button>
-`;
+	  `;
 
                 html += `
 <button type="button" class="btn ${bsize} btn-outline-secondary open-nostr-profile"><i class="bi bi-box-arrow-up-right"></i> Open</button>
 <button type="button" class="btn ${bsize} btn-outline-secondary follow-button"><i class="bi bi-person-plus"></i> <span class='label'>Follow</span></button>
-`;
+	`;
 
                 html += `
 <div class="btn-group user-lists">
@@ -888,10 +975,13 @@ ${show_profile || req.trending ? "" : "<br>" + zaps}
   <ul class="dropdown-menu">
   </ul>
 </div>
-`;
+	`;
 
                 if (show_profile)
                 {
+                    const q = "following:" + npub;
+                    const feed_url = formatPageUrl(q, 0, "posts");
+
                     html += `
 <div class="btn-group">
   <button class="btn ${bsize} btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
@@ -908,11 +998,11 @@ ${show_profile || req.trending ? "" : "<br>" + zaps}
     <li><button class="dropdown-item copy-to-clip" data-copy='${p.pubkey}'>Copy pubkey</button></li>
     <li><button class="dropdown-item copy-to-clip" data-copy='${cl_naddr}'>Copy contact list naddr</button></li>
     <li><hr class="dropdown-divider"></li>
-    <li><button class="dropdown-item show-feed" data-pubkey="${p.pubkey}">View home feed</button></li>
+    <li><a class="dropdown-item" href="${feed_url}">View home feed</a></li>
     <li><a class="dropdown-item" href="${profile_href}/edits">View edit history</a></li>
     <li><button class="dropdown-item show-relays" data-relays="${relays}">View relays</button></li>
-    <li><button class="dropdown-item show-profile-json" data-eid='${p.pubkey}'>View profile JSON</button></li>
-    <li><button class="dropdown-item show-contacts-json" data-pubkey='${p.pubkey}'>View contacts JSON</button></li>
+    <li><button class="dropdown-item show-profile-json">View profile JSON</button></li>
+    <li><button class="dropdown-item show-contacts-json">View contacts JSON</button></li>
   </ul>
 </div>`;
 
@@ -929,7 +1019,7 @@ ${show_profile || req.trending ? "" : "<br>" + zaps}
 
         html += `
 </div></div></div></div>
-`;
+    `;
         if (edits)
             html += "<hr>";
 
@@ -965,69 +1055,69 @@ ${show_profile || req.trending ? "" : "<br>" + zaps}
         const target_thumb = target_img ? formatThumbUrl(target_pubkey, "picture") : "";
         const target_psize = 48;
 
-    let target = "to profile.";
-    if (z.target_event) {
-      const post_href = "index.html?viewParam=" + getNoteId(z.target_event.id);
-      target = `
-for "<em>${san(
-        z.target_event.content.substring(0, 90)
-      )}...</em> <a href='${post_href}'>&rarr;</a>" 
-`;
+        let target = "to profile.";
+        if (z.target_event)
+        {
+            const repl = isReplaceable(z.target_event)
+            const post_href = "/" + (repl ? getNaddr(z.target_event) : getNoteId(z.target_event.id));
+            target = `
+for "<em>${san(z.target_event.content.substring(0, 90))}...</em> <a href='${post_href}'>&rarr;</a>" 
+      `;
         }
 
         let html = `
-<div class='row zap' 
- id='nostr-${san(z.id)}'
- style='font-size: 1.3em'
->
-<div class='col'>
-<div class='card mb-1 no-border'>
-<div class='card-body' style='padding-left: 0'>
-<div class='card-title mb-0'>
-<div class="row gx-2 align-items-center">
-<div class='col-auto'>
-<a class='nostr-profile-link' href='${zapper_href}' data-pubkey='${zapper_pubkey}'>
-<img style='width: ${zapper_psize}px; height: ${zapper_psize}px' 
- data-src='${san(zapper_img)}' src='${zapper_thumb}' onerror="javascript:replaceImgSrc(this)"
-class="profile ${zapper_img ? '' : 'd-none'}"></a>
-</div>
-<div class='col'><a class="nostr-profile-link align-middle" href='${zapper_href}' data-pubkey='${zapper_pubkey}'>${san(zapper_name)}</a>
-</div>
+      <div class='row zap' 
+	   id='nostr-${san(z.id)}'
+	   style='font-size: 1.3em'
+	>
+	<div class='col'>
+	  <div class='card mb-1 no-border'>
+	    <div class='card-body' style='padding-left: 0'>
+	      <div class='card-title mb-0'>
+		<div class="row gx-2 align-items-center">
+		  <div class='col-auto'>
+		    <a class='nostr-profile-link' href='${zapper_href}' data-pubkey='${zapper_pubkey}'>
+		      <img style='width: ${zapper_psize}px; height: ${zapper_psize}px' 
+			   data-src='${san(zapper_img)}' src='${zapper_thumb}' onerror="javascript:replaceImgSrc(this)"
+			   class="profile ${zapper_img ? '' : 'd-none'}"></a>
+		  </div>
+		  <div class='col'><a class="nostr-profile-link align-middle" href='${zapper_href}' data-pubkey='${zapper_pubkey}'>${san(zapper_name)}</a>
+		  </div>
 
-<div class='col-auto ps-5 pe-5'> <i class="bi bi-chevron-right"></i> <b>${z.bolt11.msats / 1000} ${z.bolt11.msats >= 1500 ? "sats" : "sat"}</b> <i class="bi bi-chevron-right"></i>
-</div>
+		  <div class='col-auto ps-5 pe-5'> <i class="bi bi-chevron-right"></i> <b>${z.bolt11.msats / 1000} ${z.bolt11.msats >= 1500 ? "sats" : "sat"}</b> <i class="bi bi-chevron-right"></i>
+		  </div>
 
-<div class='col-auto'>
-<a class='nostr-profile-link' href='${target_href}' data-pubkey='${target_pubkey}'>
-<img style='width: ${target_psize}px; height: ${target_psize}px' 
- data-src='${san(target_img)}' src='${target_thumb}' onerror="javascript:replaceImgSrc(this)"
-class="profile ${target_img ? '' : 'd-none'}"></a>
-</div>
-<div class='col'><a class="nostr-profile-link me-1"  href='${target_href}' data-pubkey='${target_pubkey}'>${san(target_name)}</a>
-</div>
+		  <div class='col-auto'>
+		    <a class='nostr-profile-link' href='${target_href}' data-pubkey='${target_pubkey}'>
+		      <img style='width: ${target_psize}px; height: ${target_psize}px' 
+			   data-src='${san(target_img)}' src='${target_thumb}' onerror="javascript:replaceImgSrc(this)"
+			   class="profile ${target_img ? '' : 'd-none'}"></a>
+		  </div>
+		  <div class='col'><a class="nostr-profile-link me-1"  href='${target_href}' data-pubkey='${target_pubkey}'>${san(target_name)}</a>
+		  </div>
 
-</div>
-</div>
-<p class="card-text mt-1 mb-1">
-Zapped ${target}<br>
-${zapper_comment}
-</p>
-<div class="row gx-2">
-<div class='col-auto'><small class='text-muted'>${zap_tm}</small></div>
-<div class='col'>
-<nobr>to <a class='nostr-profile-link' href='${provider_href}' data-pubkey='${provider_pubkey}'>
-<img style='width: ${provider_psize}px; height: ${provider_psize}px' 
- data-src='${san(provider_img)}' src='${provider_thumb}' onerror="javascript:replaceImgSrc(this)"
-class="profile ${provider_img ? '' : 'd-none'}"></a>
-<a class="nostr-profile-link me-1" href='${provider_href}' data-pubkey='${provider_pubkey}'>${san(provider_name)}</a>
-</nobr>
-</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-`;
+		</div>
+	      </div>
+	      <p class="card-text mt-1 mb-1">
+		Zapped ${target}<br>
+		${zapper_comment}
+	      </p>
+	      <div class="row gx-2">
+		<div class='col-auto'><small class='text-muted'>${zap_tm}</small></div>
+		<div class='col'>
+		  <nobr>to <a class='nostr-profile-link' href='${provider_href}' data-pubkey='${provider_pubkey}'>
+		    <img style='width: ${provider_psize}px; height: ${provider_psize}px' 
+			 data-src='${san(provider_img)}' src='${provider_thumb}' onerror="javascript:replaceImgSrc(this)"
+			 class="profile ${provider_img ? '' : 'd-none'}"></a>
+		    <a class="nostr-profile-link me-1" href='${provider_href}' data-pubkey='${provider_pubkey}'>${san(provider_name)}</a>
+		  </nobr>
+		</div>
+	      </div>
+	    </div>
+	  </div>
+	</div>
+      </div>
+    `;
 
         return html;
     }
@@ -1040,13 +1130,13 @@ class="profile ${provider_img ? '' : 'd-none'}"></a>
   <button class="btn btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"></button>
   <ul class="dropdown-menu">
     <li><a class="dropdown-item" href="/${npub}">Posts & mentions</a></li>
-    <li><a class="dropdown-item open-zaps-to" href="/${npub}/zaps-received">Zaps received</a></li>
-    <li><a class="dropdown-item open-zaps-by" href="/${npub}/zaps-sent">Zaps sent</a></li>
-    <li><a class="dropdown-item open-zaps-via" href="/${npub}/zaps-processed">Zaps processed</a></li>
+    <li><a class="dropdown-item" href="/${npub}/zaps-received">Zaps received</a></li>
+    <li><a class="dropdown-item" href="/${npub}/zaps-sent">Zaps sent</a></li>
+    <li><a class="dropdown-item" href="/${npub}/zaps-processed">Zaps processed</a></li>
   </ul>
 </span>
 </span>
-`;
+    `;
         return btns;
     }
 
@@ -1064,7 +1154,7 @@ class="profile ${provider_img ? '' : 'd-none'}"></a>
 <button class='btn btn-outline-secondary' id='list-all'>List...</button>
 <button class='btn btn-outline-secondary' id='unlist-all'>Unlist...</button>
 </div>
-`;
+    `;
     }
 
     function searchNostr(req) {
@@ -1145,7 +1235,7 @@ class="profile ${provider_img ? '' : 'd-none'}"></a>
                     const url = pageUrl(0, "profiles");
                     html += `
 <div class='mb-5'><a href='${url}' class='nostr-people-link'>And ${r.people_count - r.people.length} more profiles &rarr;</a></div>
-`;
+	  `;
                 }
             }
 
@@ -1159,7 +1249,7 @@ class="profile ${provider_img ? '' : 'd-none'}"></a>
                     const url = formatPageUrl(q + " -filter:spam", 0, type);
                     html += `
 <a class='mt-1 btn btn-outline-secondary' href='${url}'>Retry without spam filter</a>
-`;
+	  `;
                 }
                 html += "</p>";
 
@@ -1191,7 +1281,7 @@ class="profile ${provider_img ? '' : 'd-none'}"></a>
 ${p ? "Page "+(p+1)+" of " : "Found "} ${r.result_count} profiles. 
 </small>
 </div></div>
-`;
+	  `;
                     html += formatProfileSerpListButtons();
 
                 }
@@ -1202,7 +1292,7 @@ ${p ? "Page "+(p+1)+" of " : "Found "} ${r.result_count} profiles.
 ${p ? "Page "+(p+1)+" of about " : "About "} ${r.result_count} results. 
 </small>
 </div></div>
-`;
+	  `;
                 }
 
                 // print results
@@ -1255,12 +1345,12 @@ ${p ? "Page "+(p+1)+" of about " : "About "} ${r.result_count} results.
                 function formatPage(page, label) {
                     if (page == r.page)
                         html += `
-<li class="page-item active" aria-current="page"><span class="page-link">${label}</span></li>
-`;
+<li class="page-item active" aria-current="page"><span class="page-link scroll-top">${label}</span></li>
+	    `;
                     else
                         html += `
-<li class="page-item"><a class="page-link" data-page="${page}" href="${pageUrl(page)}">${label}</a></li>
-`;
+<li class="page-item"><a class="page-link scroll-top" data-page="${page}" href="${pageUrl(page)}">${label}</a></li>
+	    `;
                 }
 
                 if (r.page > 0)
@@ -1283,63 +1373,50 @@ ${p ? "Page "+(p+1)+" of about " : "About "} ${r.result_count} results.
 
             // set results
             $("#results").html(html);
+            $("#results").removeClass("d-none");
+            $("#trending").addClass("d-none");
             $("#welcome").addClass("d-none");
             $("#loading").addClass("d-none");
             $("#freebies").addClass("d-none");
 
-            /*      $("#results .follow-button").on("click", (e) => {
-	if (login_pubkey && window.nostr)
-	{
-	  const pk = getBranchAttr($(e.target), 'data-pubkey');
-	  const relay = getBranchAttr($(e.target), 'data-relay');
-	  const following = getBranchAttr($(e.target), 'data-following');
-	  ensureFollowing(pk, relay, following == "true", e.target);
-	}
-	else
-	{
-	  $("#login-modal").modal("show");
-	  // openNostrProfile(e);
-	}
-      });
-*/
-            $("#pages a.page-link").on("click", (e) => {
-                e.preventDefault();
-                const p = parseInt($(e.target).attr("data-page"));
-                startSearchScroll(q, p, type, sort);
-                return false;
-            });
+            /*      $("#pages a.page-link").on("click", (e) => {
+	 e.preventDefault();
+	 const p = parseInt($(e.target).attr("data-page"));
+	 startSearchScroll(q, p, type, sort);
+	 return false;
+	 });
 
-            $("#results a.nostr-people-link").on("click", (e) => {
-                e.preventDefault();
-                startSearchScroll(q, p, 'profiles', sort);
-                return false;
-            });
+	 $("#results a.nostr-people-link").on("click", (e) => {
+	 e.preventDefault();
+	 startSearchScroll(q, p, 'profiles', sort);
+	 return false;
+	 });
+       */
+
             /*
-      $("#results .following").on("click", (e) => {
-	const pk = getBranchAttr($(e.target), 'data-pubkey');
-	const q = "following:" + getNpub(pk);
-	startSearchScroll(q, 0, 'profiles', '');
-      });
+	 $("#results .following").on("click", (e) => {
+	 const pk = getBranchAttr($(e.target), 'data-pubkey');
+	 const q = "following:" + getNpub(pk);
+	 startSearchScroll(q, 0, 'profiles', '');
+	 });
 
-      $("#results .show-feed").on("click", (e) => {
-	const pk = getBranchAttr($(e.target), 'data-pubkey');
-	const q = "following:" + getNpub(pk);
-	startSearchScroll(q, 0, 'posts', '');
-      });
+	 $("#results .show-feed").on("click", (e) => {
+	 const pk = getBranchAttr($(e.target), 'data-pubkey');
+	 const q = "following:" + getNpub(pk);
+	 startSearchScroll(q, 0, 'posts', '');
+	 });
+       */
 
-      $("#results .followed").on("click", (e) => {
+            // not used here
+            /*      $("#results .followed").on("click", (e) => {
 	const pk = getBranchAttr($(e.target), 'data-pubkey');
 	showFollows(pk, true);
       });
-*/
+      */
             attachSerpEventHandlers("#results");
 
             addOnNostr(updateNostrContactList);
             addOnNostr(updateNostrLists);
-
-            // render right now in case window.nostr doesn't come
-            updateNostrContactList();
-            updateNostrLists();
 
             //	    if (r.timeline)
             //		showTimeline("#timeline", r.timeline,
@@ -1380,13 +1457,6 @@ ${p ? "Page "+(p+1)+" of about " : "About "} ${r.result_count} results.
         new Chart ($(sel), cfg);
     }
 
-    function searchNostrEvent(e) {
-        e.preventDefault();
-        const eid = getBranchAttr($(e.target), 'data-eid');
-        startSearchScroll(eid);
-        return false;
-    }
-
     function embedNostrObject(id) {
 
         const code = `
@@ -1414,7 +1484,7 @@ ${p ? "Page "+(p+1)+" of about " : "About "} ${r.result_count} results.
     function embedNostrEvent(e) {
         e.preventDefault();
         const eid = getBranchAttr($(e.target), 'data-eid');
-        embedNostrObject(getNoteId(eid));
+        embedNostrObject(eid);
     }
 
     function embedNostrProfile(e) {
@@ -1426,7 +1496,7 @@ ${p ? "Page "+(p+1)+" of about " : "About "} ${r.result_count} results.
     async function shareNostrEvent(e) {
         e.preventDefault();
         const eid = getBranchAttr($(e.target), 'data-eid');
-        const url = "https://nostrapp.link/#" + getNoteId(eid);
+        const url = "https://nostrapp.link/#" + eid;
         const data = {
             url
         };
@@ -1479,13 +1549,8 @@ ${p ? "Page "+(p+1)+" of about " : "About "} ${r.result_count} results.
         e.preventDefault();
         const eid = getBranchAttr($(e.target), 'data-eid');
         const select = getBranchAttr($(e.target), 'data-select');
-        openAppManager(getNoteId(eid), select);
+        openAppManager(eid, select);
         return false;
-        //    $("#nostr-client-modal").attr("data-target", eid);
-        //    $("#nostr-client-modal").attr("data-type", "event");
-        //    $("#nostr-client-modal").attr("data-follows", false);
-        //    $("#nostr-client-modal").modal("show");
-        //    return false;
     }
 
     function openNostrProfile (e) {
@@ -1493,10 +1558,6 @@ ${p ? "Page "+(p+1)+" of about " : "About "} ${r.result_count} results.
         const pk = getBranchAttr($(e.target), 'data-pubkey');
         const select = getBranchAttr($(e.target), 'data-select');
         openAppManager(getNpub(pk), select);
-        //    $("#nostr-client-modal").attr("data-target", pk);
-        //    $("#nostr-client-modal").attr("data-type", "profile");
-        //    $("#nostr-client-modal").attr("data-follows", false);
-        //    $("#nostr-client-modal").modal("show");
         return false;
     }
 
@@ -1570,7 +1631,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
 <p class="card-text mb-0">${san(p.about)}</p>
 <small class='text-muted profile-pubkey'>${p.pubkey}</small>
 </div></div></div></div>
-`;
+	`;
             }
 
             $("#follows-modal .modal-body").html(html);
@@ -1704,7 +1765,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
 
         try
         {
-//      await enableNostr();
+            //      await enableNostr();
 
             msg.pubkey = await window.nostr.getPublicKey();
 
@@ -1996,7 +2057,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
             // set timeout for this request
             socket.tos[sub_id] = to;
 
-//      console.log("sending", req, "to", relay, "was_opened", was_opened);
+            //      console.log("sending", req, "to", relay, "was_opened", was_opened);
             if (socket.readyState == 1) // OPEN?
                 socket.send(JSON.stringify(req));
             else
@@ -2005,10 +2066,12 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
     }
 
     async function getEventJson(id) {
+
         const sub = {
             ids: [id],
             limit: 1
         };
+
         const events = await getNostrEvents(sub, RELAY_ALL);
         if (events)
             return JSON.stringify (events[0], null, 2);
@@ -2276,7 +2339,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
 
         const pk = login_pubkey;
 
-//    const pk = await window.nostr.getPublicKey();
+        //    const pk = await window.nostr.getPublicKey();
         console.log("edit list", list, "pk", pk, "adds", adds, "dels", dels, "relay", relay, relays[relay]);
 
         if (!latest_contact_list)
@@ -2489,7 +2552,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
 
             if (following)
             {
-//	e.find(".label").html("Follow");
+                //	e.find(".label").html("Follow");
                 e.find(".bi").removeClass("bi-person-plus");
                 e.find(".bi").addClass("bi-person-plus-fill");
                 e.attr("data-following", true);
@@ -2498,7 +2561,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
             }
             else
             {
-//	e.find(".label").html("Follow");
+                //	e.find(".label").html("Follow");
                 e.find(".bi").addClass("bi-person-plus");
                 e.find(".bi").removeClass("bi-person-plus-fill");
                 e.attr("data-following", false);
@@ -2536,7 +2599,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
                 {
                     html += `
 <li><button class="dropdown-item list-unlist-button" data-list='${list.id}' data-listed='${list.id in pubkey_lists}'>${pubkey_lists[list.id] ? '<i class="bi bi-check"></i>' : ""} ${list.name} <b>${list.size}</b></button></li>
-`;
+	  `;
                 }
                 html += `<li><hr class="dropdown-divider"></li>`;
             }
@@ -2588,6 +2651,16 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
 
     }
 
+    function parseEid(eid) {
+        const {type, data} = tools.nip19.decode(eid);
+        if (type == "note") {
+            return data;
+        } else if (type == "naddr") {
+            return data.kind + ":" + data.pubkey + ":" + (data.identifier || "");
+        }
+        return "";
+    }
+
     async function updateLabels(new_event) {
 
         let labels = [];
@@ -2596,23 +2669,38 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
 
         if (window.nostr && login_pubkey) {
             let eids = [];
+            let addrs = [];
             $(".label-button").each(function (i, el) {
                 const e = $(el);
                 const eid = getBranchAttr(e, 'data-eid');
-                eids.push(eid);
+                const addr = parseEid(eid);
+                if (addr.includes(":")) {
+                    addrs.push(addr);
+                } else if (addr.length) {
+                    eids.push(addr);
+                }
             });
 
-            const sub = {
-                kinds: [KIND_LABEL],
-                authors: [login_pubkey],
-                '#L': [LABEL_CATEGORY],
-                '#e': eids,
-                limit: 200,
+            async function getLabels (tag, values) {
+                if (!values.length)
+                    return;
+
+                const sub = {
+                    kinds: [KIND_LABEL],
+                    authors: [login_pubkey],
+                    '#L': [LABEL_CATEGORY],
+                    limit: 200,
+                };
+
+                sub['#'+tag] = values;
+
+                const events = await getNostrEvents(sub, RELAY_ALL);
+                if (events)
+                    labels.push(...events);
             };
 
-            const events = await getNostrEvents(sub, RELAY_ALL);
-            if (events)
-                labels.push(...events);
+            await getLabels('e', eids);
+            await getLabels('a', addrs);
         }
 
         if (new_event) {
@@ -2633,6 +2721,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
         $(".label-button").each(function (i, el) {
             const e = $(el);
             const eid = getBranchAttr(e, 'data-eid');
+            const addr = parseEid(eid);
 
             let html = "";
             let labelled = false;
@@ -2653,10 +2742,11 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
                     if (!label)
                         continue;
 
+                    const tag = addr.includes(":") ? 'a' : 'e';
                     unique_labels[label] = true;
                     for (const t of e.tags)
                     {
-                        if (t.length >= 2 && t[0] == "e" && t[1] == eid)
+                        if (t.length >= 2 && t[0] == tag && t[1] == addr)
                         {
                             labelled = true;
                             event_labels[label] = true;
@@ -2669,7 +2759,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
                 {
                     html += `
 <li><button class="dropdown-item label-unlabel-button" data-label='${label}' data-labelled='${label in event_labels}'>${label in event_labels ? '<i class="bi bi-check"></i>' : ""} ${label}</button></li>
-`;
+	  `;
                 }
                 html += `<li><hr class="dropdown-divider"></li>`;
             }
@@ -2724,7 +2814,12 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
             $("body").addClass("embed-mode");
         else
             $("body").removeClass("embed-mode");
-        window.history.pushState({}, '', url);
+        if (window.cordova) {
+            console.log("go to", url);
+            cordovaUrl = url;
+        } else {
+            window.history.pushState({}, '', url);
+        }
     }
 
     function pushSearchState(q, p, type, sort, scope) {
@@ -2783,34 +2878,35 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
         if (active_label)
         {
             label = `
-<h2><a class="btn btn-lg btn-outline-secondary open-event-overview" href="/${getNoteId(eid)}/overview"><i class="bi bi-list"></i> Overview</a> &rarr; 
+<h2><a class="btn btn-lg btn-outline-secondary open-event-overview" href="/${eid}/overview"><i class="bi bi-list"></i> Overview</a> &rarr; 
 ${active_label}
-`
+      `
         }
 
         return `
 <div data-eid='${eid}'>
 <h2>${label}</h2>
 </div>
-`;
+    `;
     }
 
-    function showPost(event_id, sub_page) {
+    function showPost(eid, sub_page) {
         setRobots(true);
         setQuery('')
 
-        console.log("show post", event_id);
+        console.log("show post", eid);
 
         $("#search-spinner").removeClass("d-none");
         $("#sb-spinner").removeClass("d-none");
 
-        // proper query
-        // const q = "thread:" + event_id + " type:posts -filter:spam";
+        let id = eid;
+        if (eid.startsWith("note")) {
+            const {data} = tools.nip19.decode(eid);
+            id = data;
+        }
 
-        const eq = encodeURIComponent(event_id);
-        const url = NOSTR_API + "method=comments&id=" + eq 
-        //	      + (ep ? "&p=" + ep : "")
-        ;
+        const eq = encodeURIComponent(id);
+        const url = NOSTR_API + "method=comments&id=" + eq;
 
         $.ajax({
             url,
@@ -2838,98 +2934,93 @@ ${active_label}
             if (!r.comments.length)
             {
                 html += "<p class='mt-4'>Nothing found :(<br>";
-                html += formatScanRelays(event_id);
+                html += formatScanRelays(eid);
             }
             else
             {
-        const u = r.comments[0];
-        html += "<div class='thread-branch'>";
-        if (u.root)
-          html += formatEvent({e: u.root});
-        
-        if (u.reply_to)
-        {
-          if (u.root)
-            html += `
-      <div class='text-muted'><small>In a thread by @${getAuthorName(u.root)}</smalL></div>
-      `;
-          html += formatEvent({e: u.reply_to, root: u.root, options: "no_offset"});
-        }
-      
-        const root = u.root || u.reply_to;
-        
-        if (!u.reply_to && u.root)
-          html += `
-      <div class='text-muted'><small>Replying to @${getAuthorName(u.root)}</smalL></div>
-      `;
-      
-        if (u.reply_to)
-          html += `
-      <div class='text-muted'><small>Replying to @${getAuthorName(u.reply_to)}</small></div>
-      `;
-        html += "</div>"; // thread-branch
-        
-        html += formatEvent({e: u, root, show_post: true, options: "thread_root,no_offset,main"});
-        
-        let t = (u.author?.name || u.pubkey.substring(0,8)) + ": ";
-        t += u.content.substring (0, 50) + "... " + getNoteId(u.id);
-        document.title = t;
-      
-        html += '<div id="serp">';
-        if (sub_page)
-        {
-          html += "Loading...";
-        }
-        else if (u.children?.length)
-        {
-          html += formatEventMenu(event_id, `Replies (${u.children.length})`);
-          
-          for (const c of u.children)
-          {
-            if (c.reply_to)
-              html += formatEvent({e: c.reply_to, root: root || u, options: "no_offset"});
-      
-            // direct children don't need offset
-            let options = "no_offset";
-            html += formatEvent({e: c, root: root || u, options});
-      
-            if (c.children)
-            {
-              for (const cc of c.children)
-          html += formatEvent({e: cc, root: root || u});
-            }
-          }
-      
-        }
-        else
-        {
-          html += formatEventMenu(event_id, `Replies (0)`);
-        }
-        html += "</div>"; // #serp
+                const u = r.comments[0];
+                html += "<div class='thread-branch'>";
+                if (u.root)
+                    html += formatEvent({e: u.root});
+
+                if (u.reply_to)
+                {
+                    if (u.root)
+                        html += `
+<div class='text-muted'><small>In a thread by @${getAuthorName(u.root)}</smalL></div>
+	    `;
+                    html += formatEvent({e: u.reply_to, root: u.root, options: "no_offset"});
+                }
+
+                const root = u.root || u.reply_to;
+
+                if (!u.reply_to && u.root)
+                    html += `
+<div class='text-muted'><small>Replying to @${getAuthorName(u.root)}</smalL></div>
+	  `;
+
+                if (u.reply_to)
+                    html += `
+<div class='text-muted'><small>Replying to @${getAuthorName(u.reply_to)}</small></div>
+	  `;
+                html += "</div>"; // thread-branch
+
+                html += formatEvent({e: u, root, show_post: true, options: "thread_root,no_offset,main"});
+
+                let t = (u.author?.name || u.pubkey.substring(0,8)) + ": ";
+                t += u.content.substring (0, 50) + "... " + (u.kind == 1 ? getNoteId(u.id) : "");
+                document.title = t;
+
+                html += '<div id="serp">';
+                if (sub_page)
+                {
+                    html += "Loading...";
+                }
+                else if (u.children?.length)
+                {
+                    html += formatEventMenu(eid, `Replies (${u.children.length})`);
+
+                    for (const c of u.children)
+                    {
+                        if (c.reply_to)
+                            html += formatEvent({e: c.reply_to, root: root || u, options: "no_offset"});
+
+                        // direct children don't need offset
+                        let options = "no_offset";
+                        html += formatEvent({e: c, root: root || u, options});
+
+                        if (c.children)
+                        {
+                            for (const cc of c.children)
+                                html += formatEvent({e: cc, root: root || u});
+                        }
+                    }
+
+                }
+                else
+                {
+                    html += formatEventMenu(eid, `Replies (0)`);
+                }
+                html += "</div>"; // #serp
             }
 
             // set results
             $("#results").html(html);
+            $("#results").removeClass("d-none");
+            $("#trending").addClass("d-none");
             $("#welcome").addClass("d-none");
             $("#loading").addClass("d-none");
             $("#freebies").addClass("d-none");
 
             attachSerpEventHandlers("#results");
 
-            addOnNostr(updateNostrLabels);
-            updateNostrLabels();
-
             if (sub_page == "overview")
             {
-                getEventOverview(event_id);
+                getEventOverview(eid);
             }
             else if (sub_page == "zaps")
             {
-                getZapsFor(event_id);
-            }
-            else
-            {
-      //	getComments(event_id);
+                getZapsFor(eid);
             }
 
             if (embed) {
@@ -2937,56 +3028,10 @@ ${active_label}
                 $("#serp").css("display", "none");
                 $(".thread-branch").css("display", "none");
             }
+
+            addOnNostr(updateNostrLabels);
         });
     }
-
-  /*  function getComments(event_id) {
-    console.log("show post", event_id);
-    
-    $("#search-spinner").removeClass("d-none");
-
-    const eq = encodeURIComponent(event_id);
-    const url = NOSTR_API + "method=comments&id=" + eq;
-
-    $.ajax({
-      url,
-    }).fail((x, r, e) => {
-      $("#search-spinner").addClass("d-none");
-
-      toastError("Search failed: "+e);
-    }).done (r => {
-
-      // stop spinning
-      $("#search-spinner").addClass("d-none");
-
-      console.log("comments", r);
-
-      let html = "";
-
-      html += formatEventMenu(event_id, `Replies (${r.comments?.length})`);
-	  
-      for (const c of r?.comments)
-      {
-	if (c.reply_to)
-	  html += formatEvent({e: c.reply_to, root: c.root, options: "no_offset"});
-
-	let options = "";
-	if (c.reply_to_id == event_id)
-	  options = "no_offset";
-	html += formatEvent({e: c, root: c.root, options});
-
-	if (c.children)
-	{
-	  for (const cc of c.children)
-	    html += formatEvent({e: cc, root: c.root});
-	}
-      }
-
-      $("#serp").html(html);
-      
-    });    
-  }
-*/
 
     function formatProfileMenu(pubkey, active_label)
     {
@@ -2996,14 +3041,14 @@ ${active_label}
             label = `
 <h2><a class="btn btn-lg btn-outline-secondary open-profile-overview" href="/${getNpub(pubkey)}/overview"><i class="bi bi-list"></i> Overview</a> &rarr; 
 ${active_label}
-`
+      `
         }
 
         return `
 <div data-pubkey='${pubkey}'>
 <h2>${label}</h2>
 </div>
-`;
+    `;
     }
 
     function showProfile(pubkey, sub_page)
@@ -3119,36 +3164,38 @@ ${active_label}
 
             // set results
             $("#results").html(html);
+            $("#results").removeClass("d-none");
+            $("#trending").addClass("d-none");
             $("#welcome").addClass("d-none");
             $("#loading").addClass("d-none");
             $("#freebies").addClass("d-none");
 
-            /*      $("#results .follow-button").on("click", (e) => {
-	if (window.nostr)
-	{
-	  const pk = getBranchAttr($(e.target), 'data-pubkey');
-	  const relay = getBranchAttr($(e.target), 'data-relay');
-	  const following = getBranchAttr($(e.target), 'data-following');
-	  ensureFollowing(pk, relay, following == "true", e.target);
-	}
-	else
-	{
-	  $("#login-modal").modal("show");
-	  // openNostrProfile(e);
-	}
+            $("#results .follow-button").on("click", (e) => {
+                if (window.nostr)
+                {
+                    const pk = getBranchAttr($(e.target), 'data-pubkey');
+                    const relay = getBranchAttr($(e.target), 'data-relay');
+                    const following = getBranchAttr($(e.target), 'data-following');
+                    ensureFollowing(pk, relay, following == "true", e.target);
+                }
+                else
+                {
+                    $("#login-modal").modal("show");
+                    // openNostrProfile(e);
+                }
+            });
+            /*      $("#results .following").on("click", (e) => {
+	const pk = getBranchAttr($(e.target), 'data-pubkey');
+	const q = "following:" + getNpub(pk);
+	startSearchScroll(q, 0, 'profiles', '');
       });
-*/
-            $("#results .following").on("click", (e) => {
-                const pk = getBranchAttr($(e.target), 'data-pubkey');
-                const q = "following:" + getNpub(pk);
-                startSearchScroll(q, 0, 'profiles', '');
-            });
 
-            $("#results .show-feed").on("click", (e) => {
-                const pk = getBranchAttr($(e.target), 'data-pubkey');
-                const q = "following:" + getNpub(pk);
-                startSearchScroll(q, 0, 'posts', '');
-            });
+      $("#results .show-feed").on("click", (e) => {
+	const pk = getBranchAttr($(e.target), 'data-pubkey');
+	const q = "following:" + getNpub(pk);
+	startSearchScroll(q, 0, 'posts', '');
+      });
+      */
 
             $("#results .followed").on("click", (e) => {
                 const pk = getBranchAttr($(e.target), 'data-pubkey');
@@ -3156,11 +3203,6 @@ ${active_label}
             });
 
             attachSerpEventHandlers("#results");
-
-            addOnNostr(updateNostrContactList);
-            addOnNostr(updateNostrLists);
-            updateNostrContactList();
-            updateNostrLists();
 
             //	    if (r.timeline)
             //		showTimeline("#timeline", r.timeline,
@@ -3189,6 +3231,9 @@ ${active_label}
                 $(".main").css("visibility", "visible");
                 $("#serp").css("display", "none");
             }
+
+            addOnNostr(updateNostrContactList);
+            addOnNostr(updateNostrLists);
         });
     }
 
@@ -3214,8 +3259,8 @@ ${active_label}
             setRelays(r.relays);
 
             let html = `
-<h1>Profile edit history (${r.edits.length})</h1>
-`;
+	<h1>Profile edit history (${r.edits.length})</h1>
+      `;
 
             for (const e of r.edits)
             {
@@ -3224,8 +3269,11 @@ ${active_label}
 
             // set results
             $("#results").html(html);
+            $("#results").removeClass("d-none");
+            $("#trending").addClass("d-none");
             $("#welcome").addClass("d-none");
             $("#loading").addClass("d-none");
+            $("#freebies").addClass("d-none");
 
             attachSerpEventHandlers("#results");
 
@@ -3240,17 +3288,19 @@ ${active_label}
     }
 
     function setType(type) {
-        const t = $(`#object-types a[data-type=\"${type}\"]`).html();
+        const t = $(`#object-types button[data-type=\"${type}\"]`).html();
         // console.log("type", type, t);
         $("#object-type").html(t);
         $("#object-type").attr("data-type", type);
     }
 
-  function updateParamsState() {
-    const params = deParams();
-    // let path = document.location.pathname;
+    function updateParamsState() {
 
-    console.log("params ", params, document.location);
+        const url = cordovaUrl || document.location;
+
+        const params = deParams(url.search);
+        let path = url.pathname;
+        console.log("params ", params, url);
 
         // update type
         let type = "all";
@@ -3277,15 +3327,17 @@ ${active_label}
         else
             $("body").removeClass("embed-mode");
 
-    if (params.viewParam && params.viewParam.startsWith("trending")) {
-      setQuery("");
-      $("#results").html("");
-      $("#welcome").removeClass("d-none");
-      $("#loading").addClass("d-none");
+        if (path.startsWith("/trending/"))
+        {
+            setQuery("");
+            $("#results").html("");
+            $("#welcome").removeClass("d-none");
+            $("#loading").addClass("d-none");
 
-      const type = params.viewValue;
-      let date = params.viewDate;
-      // console.log(segments, type, date);
+            const segments = path.split("/");
+            const type = segments.length > 2 ? segments[2] : "profiles";
+            let date = segments.length > 3 ? segments[3] : "";
+            console.log(segments, type, date);
 
             if (type == "profiles"
                 || type == "posts"
@@ -3327,41 +3379,54 @@ ${active_label}
             return;
         }
 
-    if (
-      params.viewParam &&
-      (params.viewParam.startsWith("note1") ||
-        params.viewParam.startsWith("npub1") ||
-        params.viewParam.startsWith("note1") ||
-        params.viewParam.startsWith("nevent1") ||
-        params.viewParam.startsWith("nprofile1"))
-    ) {
-      $("#welcome").addClass("d-none");
-      $("#loading").removeClass("d-none");
+        if (path.startsWith ("/note1")
+            || path.startsWith("/npub1")
+            || path.startsWith ("/nevent1")
+            || path.startsWith ("/nprofile1")
+            || path.startsWith ("/naddr1")
+        )
+        {
+            $("#welcome").addClass("d-none");
+            $("#loading").removeClass("d-none");
 
-      const id = params.viewParam;
-      const edits = params.edits && params.edits == "edits";
-      const sub_page = params.sub_page ? params.sub_page : "";
+            const segments = path.split("/");
+            const id = segments[1];
+            const edits = segments.length > 2 && segments[2] == "edits";
+            const sub_page = segments.length > 2 ? segments[2] : "";
 
-      try {
-        console.log(id);
-        const r = tools.nip19.decode(id);
-        const q = r.data;
-
-        console.log(r.type);
-        if (r.type == "note") {
-          showPost(q, sub_page);
-        } else if (r.type == "npub") {
-          // console.log("pubkey", q, "edits", edits);
-          if (edits) showProfileEdits(q);
-          else showProfile(q, sub_page);
-        } else if (r.type == "nevent") {
-          console.log("nevent", q);
-          showPost(q.id, sub_page);
-        } else if (r.type == "nprofile") {
-          console.log("nprofile", q, "edits", edits);
-          if (edits) showProfileEdits(q.pubkey);
-          else showProfile(q.pubkey, sub_page);
-        }
+            try
+            {
+                //	console.log(id);
+                const r = tools.nip19.decode(id);
+                //	console.log(r);
+                const q = r.data;
+                //	console.log(q);
+                if (r.type == "note" || r.type == "naddr")
+                {
+                    console.log("event", q);
+                    showPost(id, sub_page);
+                }
+                else if (r.type == "npub")
+                {
+                    // console.log("pubkey", q, "edits", edits);
+                    if (edits)
+                        showProfileEdits(q);
+                    else
+                        showProfile(q, sub_page);
+                }
+                else if (r.type == "nevent")
+                {
+                    console.log("nevent", q);
+                    showPost(getNoteId(q.id), sub_page);
+                }
+                else if (r.type == "nprofile")
+                {
+                    console.log("nprofile", q, "edits", edits);
+                    if (edits)
+                        showProfileEdits(q.pubkey);
+                    else
+                        showProfile(q.pubkey, sub_page);
+                }
 
                 return;
             } catch (e) {}
@@ -3448,23 +3513,23 @@ ${active_label}
         return "";
     }
 
-  function gotoEvent(eid) {
-    const url = new URL(window.location);
-    url.searchParams.set("viewParam", getNoteId(eid));
-    url.search = "";
-    pushUrl(url);
-    showPost(eid);
-    scrollTop();
-  }
+    function gotoEvent(eid) {
+        const url = new URL(window.location);
+        url.pathname = "/" + eid;
+        url.search = "";
+        pushUrl(url);
+        showPost(eid);
+        scrollTop();
+    }
 
-  function gotoProfile(pubkey) {
-    const url = new URL(window.location);
-    url.searchParams.set("viewParam", getNpub(pubkey));
-    url.search = "";
-    pushUrl(url);
-    showProfile(pubkey);
-    scrollTop();
-  }
+    function gotoProfile(pubkey) {
+        const url = new URL(window.location);
+        url.pathname = "/" + getNpub(pubkey);
+        url.search = "";
+        pushUrl(url);
+        showProfile(pubkey);
+        scrollTop();
+    }
 
     function onEventClick(e) {
         if (e.target.nodeName != "A")
@@ -3482,41 +3547,8 @@ ${active_label}
     }
 
     function attachSerpEventHandlers(sel) {
-        $(sel).find (".nostr-reply").on("click", function (e) {
-            const eid = getBranchAttr($(e.target), 'data-eid');
-            //		      console.log(eid);
-            $("#nostr-"+eid+" .nostr-reply-form").removeClass("d-none");
-            $("#nostr-"+eid+" .nostr-reply-form textarea").focus();
 
-            let hint = "Your message will be signed by your browser extension";
-            if (!window.nostr)
-            {
-                hint = "Please install <a href='https://getalby.com' target='_blank'>Alby</a> or some other browser extension for key storage.";
-                $("#nostr-"+eid+" .nostr-reply-button").attr("disabled", true);
-                $("#nostr-"+eid+" textarea").attr("disabled", true);
-            }
-
-            $("#nostr-"+eid+" .hint").html(hint);
-
-            return false;
-        });
-
-        $(sel).find (".nostr-cancel-button").on("click", (e) => {
-            const eid = getBranchAttr($(e.target), 'data-eid');
-            $("#nostr-"+eid+" .nostr-reply-form").addClass("d-none");
-        });
-
-        $(sel).find (".nostr-reply-button").on("click", (e) => {
-            const eid = getBranchAttr($(e.target), 'data-eid');
-            const root = getBranchAttr($(e.target), 'data-root');
-            const relay = getBranchAttr($(e.target), 'data-relay');
-            const root_relay = getBranchAttr($(e.target), 'data-root-relay');
-            //		      console.log("reply ", eid, "root", root);
-
-            $("#nostr-"+eid+" .nostr-reply-button").attr("disabled", true);
-
-            sendNostrReply(eid, root, relay, root_relay);
-        });
+        attachLinkHandlers(sel);
 
         $(sel).find("#follow-all").on("click", followAll);
         $(sel).find("#unfollow-all").on("click", unfollowAll);
@@ -3525,7 +3557,6 @@ ${active_label}
 
         $(sel).find (".open-nostr-event").on("click", openNostrEvent);
         $(sel).find (".open-nostr-profile").on("click", openNostrProfile);
-        $(sel).find ("a.nostr-thread").on("click", searchNostrEvent);
         $(sel).find (".open-event-text").on("click", onEventClick);
         $(sel).find (".nostr-event-link").on("click", onEventClick);
         $(sel).find (".nostr-profile-link").on("click", onProfileClick);
@@ -3534,12 +3565,12 @@ ${active_label}
         $(sel).find (".embed-nostr-profile").on("click", embedNostrProfile);
         $(sel).find (".share-nostr-event").on("click", shareNostrEvent);
         $(sel).find (".share-nostr-profile").on("click", shareNostrProfile);
-        $(sel).find (".open-zaps-for").on("click", openZapsFor);
-        $(sel).find (".open-zaps-to").on("click", openZapsTo);
-        $(sel).find (".open-zaps-via").on("click", openZapsVia);
-        $(sel).find (".open-zaps-by").on("click", openZapsBy);
-        $(sel).find (".open-profile-overview").on("click", openProfileOverview);
-        $(sel).find (".open-event-overview").on("click", openEventOverview);
+        //    $(sel).find (".open-zaps-for").on("click", openZapsFor);
+        //    $(sel).find (".open-zaps-to").on("click", openZapsTo);
+        //    $(sel).find (".open-zaps-via").on("click", openZapsVia);
+        //    $(sel).find (".open-zaps-by").on("click", openZapsBy);
+        //    $(sel).find (".open-profile-overview").on("click", openProfileOverview);
+        //    $(sel).find (".open-event-overview").on("click", openEventOverview);
         $(sel).find ("#scan-relays").on("click", toggleScanRelays);
 
         $(sel).find (".copy-to-clip").on("click", async (e) => {
@@ -3559,15 +3590,15 @@ ${active_label}
         });
 
         $(sel).find (".show-event-json").on("click", async function (e) {
-            const eid = getBranchAttr($(e.target), 'data-eid');
-            const json = await getEventJson(eid);
+            const id = getBranchAttr($(e.target), 'data-id');
+            const json = await getEventJson(id);
             $("#json-modal .modal-body textarea").html(json);
             $("#json-modal").modal("show");
         });
 
         $(sel).find (".show-profile-json").on("click", async function (e) {
-            const eid = getBranchAttr($(e.target), 'data-pubkey');
-            const json = await getProfileJson(eid);
+            const pk = getBranchAttr($(e.target), 'data-pubkey');
+            const json = await getProfileJson(pk);
             $("#json-modal .modal-body textarea").html(json);
             $("#json-modal").modal("show");
         });
@@ -3615,12 +3646,12 @@ ${active_label}
 <div class='card-title mb-0' style='font-size: larger'>
 <a target='_blank' href='${u.url}' class='serp-url-link'>${u.url}</a></div>
 
-`;
+      `;
             html += `
 </div>
 </div></div>
 </div>
-`;
+      `;
 
             for (const t of u.threads)
             {
@@ -3632,7 +3663,7 @@ ${active_label}
                 const more_url = formatPageUrl(u.url, 0, '', 'nostr');
                 html += `
 <div class='ms-5 mb-3'><small><a href='${more_url}' class='more-trending' data-url='${u.url}'>And ${u.threads_count - u.threads.length} more threads &rarr;</a></small></div>
-`;
+	`;
             }
         }
 
@@ -3640,11 +3671,12 @@ ${active_label}
 
         attachSerpEventHandlers("#trending-urls");
 
-        $("#trending-urls a.more-trending").on("click", (e) => {
-            const url = getBranchAttr($(e.target), 'data-url');
-            startSearchScroll(url);
-            return false;
-        });
+        /*	$("#trending-urls a.more-trending").on("click", (e) => {
+      const url = getBranchAttr($(e.target), 'data-url');
+      startSearchScroll(url);
+      return false;
+    });
+    */
     }
 
     function formatTrendingHashtags(r) {
@@ -3661,12 +3693,12 @@ ${active_label}
 <div class='card-title mb-0' style='font-size: larger'>
 <a href='${more_url}' class='serp-url-link'>${h.hashtag}</a></div>
 
-`;
+      `;
             html += `
 </div>
 </div></div>
 </div>
-`;
+      `;
 
             for (const t of h.threads)
             {
@@ -3677,7 +3709,7 @@ ${active_label}
             {
                 html += `
 <div class='ms-5 mb-3'><small><a href='${more_url}' class='more-trending' data-hashtag='${h.hashtag}'>And ${h.threads_count - h.threads.length} more threads &rarr;</a></small></div>
-`;
+	`;
             }
         }
 
@@ -3685,11 +3717,12 @@ ${active_label}
 
         attachSerpEventHandlers("#trending-hashtags");
 
-        $("#trending-hashtags a.more-trending").on("click", (e) => {
-            const h = getBranchAttr($(e.target), 'data-hashtag');
-            startSearchScroll(h);
-            return false;
-        });
+        /*	$("#trending-hashtags a.more-trending").on("click", (e) => {
+      const h = getBranchAttr($(e.target), 'data-hashtag');
+      startSearchScroll(h);
+      return false;
+    });
+    */
     }
 
     function formatDate(d) {
@@ -3708,7 +3741,7 @@ ${active_label}
         html += `
 <h2 class='mt-3 mb-3'>Trending ${label} on ${d.toDateString()}</h2>
 <div class='row mb-4'>
-`;
+    `;
 
         let previous = '';
         let next = '';
@@ -3720,36 +3753,27 @@ ${active_label}
         if (dp > new Date("2023-01-01").getTime())
             previous = formatDate(dp);
 
-    if (previous)
-      //       html += `
-      //  <div class='col-auto'>
-      //   <a class='btn btn-outline-primary previous' href='/trending/${type}/${previous}' data-date='${previous}'>&larr; Previous day</a>
-      //  </div>
-      // `;
-      html += `
-<div class='col-auto'>
- <a class='btn btn-outline-primary previous' href='index.html?viewParam=trending&viewValue=${type}&viewDate=${previous}' data-date='${previous}'>&larr; Previous day</a>
-</div>
-`;
-    html += `
+        if (previous)
+            html += `
+ <div class='col-auto'>
+  <a class='btn btn-outline-primary previous' href='/trending/${type}/${previous}' data-date='${previous}'>&larr; Previous day</a>
+ </div>
+      `;
+
+        html += `
  <div class='col-auto'>
   <div class="input-group date">
    <input type="text" class="form-control" value='${date}'>
    <span class="input-group-addon"><i class="glyphicon glyphicon-th"></i></span>
   </div>
  </div>
-`;
-    if (next)
-      //       html += `
-      //  <div class='col'>
-      //   <a class='btn btn-outline-primary next' href='/trending/${type}/${next}' data-date='${next}'>Next day &rarr;</a>
-      //  </div>
-      // `;
-      html += `
-<div class='col'>
- <a class='btn btn-outline-primary next' href='index.html?viewParam=trending&viewValue=${type}&viewDate=${next}' data-date='${next}'>Next day &rarr;</a>
-</div>
-`;
+    `;
+        if (next)
+            html += `
+ <div class='col'>
+  <a class='btn btn-outline-primary next' href='/trending/${type}/${next}' data-date='${next}'>Next day &rarr;</a>
+ </div>
+      `;
         html += `
 </div>`;
 
@@ -3772,26 +3796,15 @@ ${active_label}
 <div class='row mb-1'><div class='col-auto'>
  <b>${monthNames[d.getMonth()]}:</b>
 </div><div class='col'>
-`;
-    for (let i = 1; i <= md.getDate(); i++) {
-      const dt = formatDate(
-        new Date(Date.UTC(d.getFullYear(), d.getMonth(), i))
-      );
-      const cur = i == d.getDate();
-
-      //       html += ` <a class='btn btn-sm btn-outline-${
-      //         cur ? "secondary" : "primary"
-      //       } text-center dates'
-      // data-date='${dt}' href='/trending/${type}/${dt}' style='width: 2.5em;'>${i}</a>`;
-      //       if (i == 15) html += "<br>";
-      //     }
-      html += ` <a class='btn btn-sm btn-outline-${
-        cur ? "secondary" : "primary"
-      } text-center dates' 
-data-date='${dt}' href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}' style='width: 2.5em;'>${i}</a>`;
-      if (i == 15) html += "<br>";
-    }
-    html += `
+    `;
+        for (let i = 1; i <= md.getDate (); i++) {
+            const dt = formatDate(new Date(Date.UTC(d.getFullYear(), d.getMonth(), i)))
+            const cur = i == d.getDate();
+            html += ` <a class='btn btn-sm btn-outline-${cur ? "secondary" : "primary"} text-center dates' 
+data-date='${dt}' href='/trending/${type}/${dt}' style='width: 2.5em;'>${i}</a>`;
+            if (i == 15) html += "<br>";
+        }
+        html += `
 </div></div>`;
 
         const mm = new Date(
@@ -3803,22 +3816,13 @@ data-date='${dt}' href='index.html?viewParam=trending&viewValue=${type}&viewDate
         html += `
 <div class='row mb-1'><div class='col'>
 <b>${d.getFullYear()}:</b>`;
-    for (let i = 0; i <= mm.getMonth(); i++) {
-      const dt = formatDate(new Date(Date.UTC(d.getFullYear(), i)));
-      const cur = i == d.getMonth();
-      //       html += ` <a class='btn btn-sm btn-outline-${
-      //         cur ? "secondary" : "primary"
-      //       } dates' data-date='${dt}'
-      // href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
-      //     }
-      html += ` <a class='btn btn-sm btn-outline-${
-        cur ? "secondary" : "primary"
-      } dates' data-date='${dt}' 
-href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
-        monthNames[i]
-      }</a>`;
-    }
-    html += `
+        for (let i = 0; i <= mm.getMonth (); i++) {
+            const dt = formatDate(new Date(Date.UTC(d.getFullYear(), i)));
+            const cur = i == d.getMonth ();
+            html += ` <a class='btn btn-sm btn-outline-${cur ? "secondary" : "primary"} dates' data-date='${dt}' 
+href='/trending/${type}/${dt}'>${monthNames[i]}</a>`;
+        }
+        html += `
 </div></div>`;
 
         return html;
@@ -3850,24 +3854,24 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
             });
         }
 
-    if (history) {
-      html += formatTrendingHistoryFooter("profiles", date);
-    } else {
-      const d = new Date(Date.now());
-      const dt = formatDate(
-        new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate() - 1))
-      );
-      // html += `<a href='/trending/profiles/${dt}'>See who was trending yesterday &rarr;</a>`;
-      html += `<a href='index.html?viewParam=trending&viewValue=profiles&viewDate=${dt}'>See who was trending yesterday &rarr;</a>`;
-    }
+        if (history)
+        {
+            html += formatTrendingHistoryFooter("profiles", date);
+        }
+        else
+        {
+            const d = new Date(Date.now ());
+            const dt = formatDate(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()-1)));
+            html += `<a href='/trending/profiles/${dt}'>See who was trending yesterday &rarr;</a>`;
+        }
 
-    function gotoDate(date) {
-      const url = new URL(window.location);
-      // url.pathname = "/trending/profiles/" + date;
-      url.searchParams.set("viewDate", date);
-      pushUrl(url);
-      showTrending("profiles", date);
-    }
+        function gotoDate(date) {
+            const url = new URL(window.location);
+            console.log(url);
+            url.pathname = "/trending/profiles/" + date;
+            pushUrl(url);
+            showTrending("profiles", date);
+        };
 
         const cont = history ? "#results" : "#trending-profiles";
         $(cont).html(html);
@@ -3888,46 +3892,47 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
         attachSerpEventHandlers(cont);
 
         if (history) {
-            $("#results a.previous, #results a.next, #results a.dates").on("click", (e) => {
-                const date = getBranchAttr($(e.target), 'data-date');
-                gotoDate(date);
-                scrollTop();
-                return false;
-            });
-
+            /*      $("#results a.previous, #results a.next, #results a.dates").on("click", (e) => {
+	const date = getBranchAttr($(e.target), 'data-date');
+	gotoDate(date);
+	scrollTop();
+	return false;
+      });
+      */
         } else {
-            $("#trending-people a.more-trending").on("click", (e) => {
-                const pk = getBranchAttr($(e.target), 'data-pubkey');
-                startSearchScroll(pk);
-                return false;
-            });
+            /*      $("#trending-people a.more-trending").on("click", (e) => {
+	const pk = getBranchAttr($(e.target), 'data-pubkey');
+	startSearchScroll(pk);
+	return false;
+      });
 
-            $("#trending-people .following").on("click", (e) => {
-                const pk = getBranchAttr($(e.target), 'data-pubkey');
-                showFollows(pk, false);
-            });
+      $("#trending-people .following").on("click", (e) => {
+	const pk = getBranchAttr($(e.target), 'data-pubkey');
+	showFollows(pk, false);
+      });
 
-            $("#trending-people .followed").on("click", (e) => {
-                const pk = getBranchAttr($(e.target), 'data-pubkey');
-                showFollows(pk, true);
-            });
+      $("#trending-people .followed").on("click", (e) => {
+	const pk = getBranchAttr($(e.target), 'data-pubkey');
+	showFollows(pk, true);
+      });
+      */
         }
 
         /*    $(cont + " .follow-button").on("click", (e) => {
-      if (window.nostr)
-      {
-	const pk = getBranchAttr($(e.target), 'data-pubkey');
-	const relay = getBranchAttr($(e.target), 'data-relay');
-	const following = getBranchAttr($(e.target), 'data-following');
-	ensureFollowing(pk, relay, following == "true", e.target);
-      }
-      else
-      {
-	$("#login-modal").modal("show");
-	//	openNostrProfile(e);
-      }
-    });
-*/
+       if (window.nostr)
+       {
+       const pk = getBranchAttr($(e.target), 'data-pubkey');
+       const relay = getBranchAttr($(e.target), 'data-relay');
+       const following = getBranchAttr($(e.target), 'data-following');
+       ensureFollowing(pk, relay, following == "true", e.target);
+       }
+       else
+       {
+       $("#login-modal").modal("show");
+       //	openNostrProfile(e);
+       }
+       });
+     */
     }
 
     function formatTrendingPosts(r, type, date) {
@@ -3939,11 +3944,11 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
         if (history)
             html += formatTrendingHistoryHeader(type, date);
 
-    for (const p of r[type]) {
-      console.log(getNoteId(p.post.id));
+        for (const p of r[type])
+        {
+            const more_url = "/" + getNoteId(p.post.id); // formatPageUrl(p.post.id, 0, '', 'nostr');
 
-      const more_url = "index.html?viewParam=" + getNoteId(p.post.id);
-      html += formatEvent({ e: p.post, options: "no_padding" });
+            html += formatEvent({e: p.post, options: "no_padding"});
 
             for (const t of p.threads)
             {
@@ -3954,27 +3959,29 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
             {
                 html += `
 <div class='ms-5 mb-3'><small><a href='${more_url}' class='more-trending' data-id='${p.post.id}'>And ${p.threads_count - p.threads.length} more replies &rarr;</a></small></div>
-`;
+	`;
             }
         }
 
-    if (history) {
-      html += formatTrendingHistoryFooter(type, date);
-    } else {
-      const d = new Date(Date.now());
-      const dt = formatDate(
-        new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate() - 1))
-      );
-      html += `<a href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>See what was trending yesterday &rarr;</a>`;
-    }
 
-    function gotoDate(date) {
-      const url = new URL(window.location);
-      url.searchParams.set("viewValue", type);
-      url.searchParams.set("viewDate", date);
-      pushUrl(url);
-      showTrending(type, date);
-    }
+        if (history)
+        {
+            html += formatTrendingHistoryFooter(type, date);
+        }
+        else
+        {
+            const d = new Date(Date.now ());
+            const dt = formatDate(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()-1)));
+            html += `<a href='/trending/${type}/${dt}'>See what was trending yesterday &rarr;</a>`;
+        }
+
+        function gotoDate(date) {
+            const url = new URL(window.location);
+            console.log(url);
+            url.pathname = `/trending/${type}/${date}`;
+            pushUrl(url);
+            showTrending(type, date);
+        };
 
         const cont = history ? "#results" : "#trending-"+type;
 
@@ -3996,12 +4003,13 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
         attachSerpEventHandlers(cont);
 
         if (history) {
-            $("#results a.previous, #results a.next, #results a.dates").on("click", (e) => {
-                const date = getBranchAttr($(e.target), 'data-date');
-                gotoDate(date);
-                scrollTop();
-                return false;
-            });
+            /*      $("#results a.previous, #results a.next, #results a.dates").on("click", (e) => {
+	const date = getBranchAttr($(e.target), 'data-date');
+	gotoDate(date);
+	scrollTop();
+	return false;
+      });
+      */
         }
     }
 
@@ -4013,8 +4021,9 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
         {
             if (!p.post || !p.post.id) continue;
 
-      const more_url = "index.html?viewParam=" + getNoteId(p.post.id);
-      html += formatEvent({ e: p.post, options: "no_padding" });
+            const more_url = "/" + getNoteId(p.post.id); // formatPageUrl(p.post.id, 0, '', 'nostr');
+
+            html += formatEvent({e: p.post, options: "no_padding"});
 
             for (const t of p.threads)
             {
@@ -4025,7 +4034,7 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
             {
                 html += `
 <div class='ms-5 mb-3'><small><a href='${more_url}' class='more-trending' data-id='${p.post.id}'>And ${p.threads_count - p.threads.length} more replies &rarr;</a></small></div>
-`;
+	`;
             }
         }
 
@@ -4062,17 +4071,17 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 
             addOnNostr(updateNostrContactList);
             addOnNostr(updateNostrLists);
-            updateNostrContactList();
-            updateNostrLists();
 
             $("#greeting").addClass("d-none");
             if (date)
             {
                 $("#results").removeClass("d-none");
+                $("#trending").addClass("d-none");
             }
             else
             {
                 $("#trending").removeClass("d-none");
+                $("#results").addClass("d-none");
 
                 const triggerEl = document.querySelector('#trending a.nav-link[data-bs-target="#trending-'+type+'"]')
                 bootstrap.Tab.getInstance(triggerEl).show() // Select tab by name
@@ -4094,96 +4103,90 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
         })
     }
 
-    function openProfileOverview(e) {
-        e.preventDefault();
+    /*  function openProfileOverview(e) {
+    e.preventDefault();
 
-        const pk = getBranchAttr($(e.target), 'data-pubkey');
+    const pk = getBranchAttr($(e.target), 'data-pubkey');
 
     const url = new URL(window.location);
-    url.searchParams.set("viewParam", getNpub(pk));
-    url.searchParams.set("viewDate", "overview");
+    url.pathname = "/" + getNpub(pk) + "/overview";
     url.search = "";
     pushUrl(url);
 
-        getProfileOverview(pk);
-        scrollTop();
-    }
+    getProfileOverview(pk);
+    scrollTop();
+  }
 
-    function openEventOverview(e) {
-        e.preventDefault();
+  function openEventOverview(e) {
+    e.preventDefault();
 
-        const eid = getBranchAttr($(e.target), 'data-eid');
+    const eid = getBranchAttr($(e.target), 'data-eid');
 
     const url = new URL(window.location);
-    url.searchParams.set("viewParam", getNoteId(eid));
-    url.searchParams.set("viewDate", "overview");
+    url.pathname = "/" + eid + "/overview";
     url.search = "";
     pushUrl(url);
 
-        getEventOverview(eid);
-        scrollTop();
-    }
+    getEventOverview(eid);
+    scrollTop();
+  }
+  */
+    /*  function openZapsTo(e) {
+    e.preventDefault();
 
-    function openZapsTo(e) {
-        e.preventDefault();
-
-        const pk = getBranchAttr($(e.target), 'data-pubkey');
+    const pk = getBranchAttr($(e.target), 'data-pubkey');
 
     const url = new URL(window.location);
-    url.searchParams.set("viewParam", getNpub(pk));
-    url.searchParams.set("viewDate", "zaps-received");
+    url.pathname = "/" + getNpub(pk) + "/zaps-received";
     url.search = "";
     pushUrl(url);
 
-        getZapsTo(pk);
-        scrollTop();
-    }
+    getZapsTo(pk);
+    scrollTop();
+  }
 
-    function openZapsFor(e) {
-        e.preventDefault();
+  function openZapsFor(e) {
+    e.preventDefault();
 
-        const eid = getBranchAttr($(e.target), 'data-eid');
+    const eid = getBranchAttr($(e.target), 'data-eid');
 
     const url = new URL(window.location);
-    url.searchParams.set("viewParam", getNoteId(eid));
-    url.searchParams.set("sub_page", "zaps");
+    url.pathname = "/" + eid + "/zaps";
     url.search = "";
     pushUrl(url);
 
-        getZapsFor(eid);
-        scrollTop();
-    }
+    getZapsFor(eid);
+    scrollTop();
+  }
 
-    function openZapsVia(e) {
-        e.preventDefault();
+  function openZapsVia(e) {
+    e.preventDefault();
 
-        const pk = getBranchAttr($(e.target), 'data-pubkey');
+    const pk = getBranchAttr($(e.target), 'data-pubkey');
 
     const url = new URL(window.location);
-    url.searchParams.set("viewParam", getNpub(pk));
-    url.searchParams.set("viewDate", "zaps-processed");
+    url.pathname = "/" + getNpub(pk) + "/zaps-processed";
     url.search = "";
     pushUrl(url);
 
-        getZapsVia(pk);
-        scrollTop();
-    }
+    getZapsVia(pk);
+    scrollTop();
+  }
 
-    function openZapsBy(e) {
-        e.preventDefault();
+  function openZapsBy(e) {
+    e.preventDefault();
 
-        const pk = getBranchAttr($(e.target), 'data-pubkey');
+    const pk = getBranchAttr($(e.target), 'data-pubkey');
 
     const url = new URL(window.location);
-    url.searchParams.set("viewParam", getNpub(pk));
-    url.searchParams.set("viewDate", "zaps-sent");
+    url.pathname = "/" + getNpub(pk) + "/zaps-sent";
     url.search = "";
     pushUrl(url);
 
-        getZapsBy(pk);
-        scrollTop();
-    }
-
+    getZapsBy(pk);
+    scrollTop();
+  }
+  */
     function eventToZap(e) {
         const z = e;
         for (const t of z.tags)
@@ -4302,129 +4305,126 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 
             console.log("profile stats", pk, rep);
 
-        const r = rep.stats[pk];
-        const url = new URL(window.location);
-        url.searchParams.set("viewParam", getNpub(pk));
-        pushUrl(url);
-        console.log(url, url.searchParams);
-        const npub = `index.html?viewParam=${getNpub(pk)}`;
+            const r = rep.stats[pk];
+
+            const npub = getNpub(pk);
 
             let html = `
-<div data-pubkey='${pk}'>
-<h2>Overview</h2>
+	<div data-pubkey='${pk}'>
+	  <h2>Overview</h2>
 
-<div class="row">
+	  <div class="row">
 
-<div class="col-12 mt-2 mb-1">
-<small class='text-muted'>Need these numbers in your client? Try our <a href='https://api.nostr.band'>API</a>.</small>
-</div>
+	    <div class="col-12 mt-2 mb-1">
+	      <small class='text-muted'>Need these numbers in your client? Try our <a href='https://api.nostr.band'>API</a>.</small>
+	    </div>
 
-<div class="col-12 mt-3 mb-1">
-<h4>Published by profile:</h4>
-</div>
+	    <div class="col-12 mt-3 mb-1">
+	      <h4>Published by profile:</h4>
+	    </div>
 
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Posts & replies: <b>${r.pub_note_count || 0}</b></div>
-<span class='text-muted'>Total number of posts published by this profile.</span>
-<a href='${npub}' class='stretched-link'>View</a>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Posts: <b>${r.pub_post_count || 0}</b></div>
-<span class='text-muted'>Number of posts published by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Replies: <b>${r.pub_reply_count || 0}</b></div>
-<span class='text-muted'>Number of replies published by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Likes: <b>${r.pub_reaction_count || 0}</b></div>
-<span class='text-muted'>Number of likes published by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reports: <b>${r.pub_report_count || 0}</b></div>
-<span class='text-muted'>Number of reports published by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Mentioned events: <b>${r.pub_note_ref_event_count || 0}</b></div>
-<span class='text-muted'>Number of events mentioned by posts of this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Mentioned profiles: <b>${r.pub_note_ref_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles mentioned by posts of this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reposted events: <b>${r.pub_repost_ref_event_count || 0}</b></div>
-<span class='text-muted'>Number of events reposted by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reposted profiles: <b>${r.pub_repost_ref_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles reposted by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Liked events: <b>${r.pub_reaction_ref_event_count || 0}</b></div>
-<span class='text-muted'>Number of events liked by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Liked profiles: <b>${r.pub_reaction_ref_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles liked by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reported events: <b>${r.pub_report_ref_event_count || 0}</b></div>
-<span class='text-muted'>Number of events reported by this profile</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reported profiles: <b>${r.pub_report_ref_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles reported by this profile</span>
-</div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Posts & replies: <b>${r.pub_note_count || 0}</b></div>
+	      <span class='text-muted'>Total number of posts published by this profile.</span>
+	      <a href='/${npub}' class='stretched-link'>View</a>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Posts: <b>${r.pub_post_count || 0}</b></div>
+	      <span class='text-muted'>Number of posts published by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Replies: <b>${r.pub_reply_count || 0}</b></div>
+	      <span class='text-muted'>Number of replies published by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Likes: <b>${r.pub_reaction_count || 0}</b></div>
+	      <span class='text-muted'>Number of likes published by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reports: <b>${r.pub_report_count || 0}</b></div>
+	      <span class='text-muted'>Number of reports published by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Mentioned events: <b>${r.pub_note_ref_event_count || 0}</b></div>
+	      <span class='text-muted'>Number of events mentioned by posts of this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Mentioned profiles: <b>${r.pub_note_ref_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles mentioned by posts of this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reposted events: <b>${r.pub_repost_ref_event_count || 0}</b></div>
+	      <span class='text-muted'>Number of events reposted by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reposted profiles: <b>${r.pub_repost_ref_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles reposted by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Liked events: <b>${r.pub_reaction_ref_event_count || 0}</b></div>
+	      <span class='text-muted'>Number of events liked by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Liked profiles: <b>${r.pub_reaction_ref_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles liked by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reported events: <b>${r.pub_report_ref_event_count || 0}</b></div>
+	      <span class='text-muted'>Number of events reported by this profile</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reported profiles: <b>${r.pub_report_ref_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles reported by this profile</span>
+	    </div>
 
-<div class="col-12 mt-3 mb-1">
-<h4>References to profile:</h4>
-<small class='text-muted'>All numbers include this profile's self-referencing events.</small>
-</div>
+	    <div class="col-12 mt-3 mb-1">
+	      <h4>References to profile:</h4>
+	      <small class='text-muted'>All numbers include this profile's self-referencing events.</small>
+	    </div>
 
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Replies: <b>${r.reply_count || 0}</b></div>
-<span class='text-muted'>Number of replies to posts of this profile.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Replying profiles: <b>${r.reply_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles that reply to this profile.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reposts: <b>${r.repost_count || 0}</b></div>
-<span class='text-muted'>Number of reposts of events of this profiles.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reposting profiles: <b>${r.repost_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles that repost events of this profile.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Likes: <b>${r.reaction_count || 0}</b></div>
-<span class='text-muted'>Number of likes of events of this profile.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Liking profiles: <b>${r.reaction_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles that like events of this profile.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reports: <b>${r.report_count || 0}</b></div>
-<span class='text-muted'>Number of reports of events of this profile.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reporting profiles: <b>${r.report_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles that report events of this profile.</span>
-</div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Replies: <b>${r.reply_count || 0}</b></div>
+	      <span class='text-muted'>Number of replies to posts of this profile.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Replying profiles: <b>${r.reply_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles that reply to this profile.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reposts: <b>${r.repost_count || 0}</b></div>
+	      <span class='text-muted'>Number of reposts of events of this profiles.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reposting profiles: <b>${r.repost_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles that repost events of this profile.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Likes: <b>${r.reaction_count || 0}</b></div>
+	      <span class='text-muted'>Number of likes of events of this profile.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Liking profiles: <b>${r.reaction_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles that like events of this profile.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reports: <b>${r.report_count || 0}</b></div>
+	      <span class='text-muted'>Number of reports of events of this profile.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reporting profiles: <b>${r.report_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles that report events of this profile.</span>
+	    </div>
 
-<div class="col-12 mt-3 mb-1">
-<h4>Zaps received:</h4>
-</div>
+	    <div class="col-12 mt-3 mb-1">
+	      <h4>Zaps received:</h4>
+	    </div>
 
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Number of zaps: <b>${r?.zaps_received?.count || 0}</b></div>
-<span class='text-muted'>Number of zaps received by this profile.</span>
-<a href='${npub}&sub_page=zaps-received' class='stretched-link open-zaps-to'>View</a>
-</div>
-`
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Number of zaps: <b>${r?.zaps_received?.count || 0}</b></div>
+	      <span class='text-muted'>Number of zaps received by this profile.</span>
+	      <a href='/${npub}/zaps-received' class='stretched-link'>View</a>
+	    </div>
+      `
             if (r.zaps_received)
             {
                 html += `
@@ -4456,7 +4456,7 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 <div class='stats'>Number of providers: <b>${r.zaps_received.provider_count}</b></div>
 <span class='text-muted'>Number of providers that processed zaps received by this profile.</span>
 </div>
-`;
+	`;
             }
 
             html += `
@@ -4467,9 +4467,9 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Number of zaps: <b>${r?.zaps_sent?.count || 0}</b></div>
 <span class='text-muted'>Number of zaps sent by this profile.</span>
-<a href='${npub}&sub_page=zaps-sent' class='stretched-link open-zaps-by'>View</a>
+<a href='/${npub}/zaps-sent' class='stretched-link'>View</a>
 </div>
-`
+      `
             if (r.zaps_sent)
             {
                 html += `
@@ -4505,7 +4505,7 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 <div class='stats'>Number of providers: <b>${r.zaps_sent.provider_count}</b></div>
 <span class='text-muted'>Number of providers that processed zaps sent by this profile.</span>
 </div>
-`;
+	`;
             }
 
             html += `
@@ -4516,9 +4516,9 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 <div class="col-12 border-bottom mb-2 position-relative">
 <div class='stats'>Number of zaps: <b>${r?.zaps_processed?.count || 0}</b></div>
 <span class='text-muted'>Number of zaps processed by this profile.</span>
-<a href='${npub}&sub_page=zaps-processed' class='stretched-link open-zaps-via'>View</a>
+<a href='/${npub}/zaps-processed' class='stretched-link'>View</a>
 </div>
-`
+      `
             if (r.zaps_processed)
             {
                 html += `
@@ -4550,14 +4550,14 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 <div class='stats'>Median amount of zaps: <b>${r.zaps_processed.median_msats / 1000} sats</b></div>
 <span class='text-muted'>Median amount of zaps processed by this profile.</span>
 </div>
-`;
+	`;
             }
 
 
             html += `
 </div>
 </div>
-`;
+      `;
 
             $("#serp").html(html);
 
@@ -4579,68 +4579,68 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 
             console.log("event stats", eid, rep);
 
-            const r = rep.stats[eid];
-
-        const note = `index.html?viewParam=${getNoteId(eid)}`;
+            let r = null;
+            for (const i in rep.stats)
+                r = rep.stats[i];
 
             let html = `
-<div data-eid='${eid}'>
-<h2>Overview</h2>
+	<div data-eid='${eid}'>
+	  <h2>Overview</h2>
 
-<div class="row">
+	  <div class="row">
 
-<div class="col-12 mt-2 mb-1">
-<small class='text-muted'>Need these numbers in your client? Try our <a href='https://api.nostr.band'>API</a>.</small>
-</div>
+	    <div class="col-12 mt-2 mb-1">
+	      <small class='text-muted'>Need these numbers in your client? Try our <a href='https://api.nostr.band'>API</a>.</small>
+	    </div>
 
-<div class="col-12 mt-3 mb-1">
-<h4>References to event:</h4>
-</div>
+	    <div class="col-12 mt-3 mb-1">
+	      <h4>References to event:</h4>
+	    </div>
 
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Replies: <b>${r.reply_count || 0}</b></div>
-<span class='text-muted'>Number of replies to this post.</span>
-<a href='${note}' class='stretched-link'>View</a>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Replying profiles: <b>${r.reply_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles that reply to this post.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reposts: <b>${r.repost_count || 0}</b></div>
-<span class='text-muted'>Number of reposts of this post.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reposting profiles: <b>${r.repost_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles that reposted this post.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Likes: <b>${r.reaction_count || 0}</b></div>
-<span class='text-muted'>Number of likes of this post.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Liking profiles: <b>${r.reaction_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles that like this post.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reports: <b>${r.report_count || 0}</b></div>
-<span class='text-muted'>Number of reports of this post.</span>
-</div>
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Reporting profiles: <b>${r.report_pubkey_count || 0}</b></div>
-<span class='text-muted'>Number of profiles that report this post.</span>
-</div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Replies: <b>${r.reply_count || 0}</b></div>
+	      <span class='text-muted'>Number of replies to this post.</span>
+	      <a href='/${eid}' class='stretched-link'>View</a>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Replying profiles: <b>${r.reply_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles that reply to this post.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reposts: <b>${r.repost_count || 0}</b></div>
+	      <span class='text-muted'>Number of reposts of this post.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reposting profiles: <b>${r.repost_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles that reposted this post.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Likes: <b>${r.reaction_count || 0}</b></div>
+	      <span class='text-muted'>Number of likes of this post.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Liking profiles: <b>${r.reaction_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles that like this post.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reports: <b>${r.report_count || 0}</b></div>
+	      <span class='text-muted'>Number of reports of this post.</span>
+	    </div>
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Reporting profiles: <b>${r.report_pubkey_count || 0}</b></div>
+	      <span class='text-muted'>Number of profiles that report this post.</span>
+	    </div>
 
-<div class="col-12 mt-3 mb-1">
-<h4>Zaps received:</h4>
-</div>
+	    <div class="col-12 mt-3 mb-1">
+	      <h4>Zaps received:</h4>
+	    </div>
 
-<div class="col-12 border-bottom mb-2 position-relative">
-<div class='stats'>Number of zaps: <b>${r?.zaps?.count || 0}</b></div>
-<span class='text-muted'>Number of zaps received by this post.</span>
-<a href='${note}&sub_page=zaps' class='stretched-link'>View</a>
-</div>
-`
+	    <div class="col-12 border-bottom mb-2 position-relative">
+	      <div class='stats'>Number of zaps: <b>${r?.zaps?.count || 0}</b></div>
+	      <span class='text-muted'>Number of zaps received by this post.</span>
+	      <a href='/${eid}/zaps' class='stretched-link'>View</a>
+	    </div>
+      `
             if (r.zaps)
             {
                 html += `
@@ -4672,13 +4672,13 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 <div class='stats'>Number of providers: <b>${r.zaps.provider_count}</b></div>
 <span class='text-muted'>Number of providers that processed zaps received by this post.</span>
 </div>
-`;
+	`;
             }
 
             html += `
 </div>
 </div>
-`;
+      `;
 
             $("#serp").html(html);
 
@@ -4704,7 +4704,7 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
             req["authors"] = [pk];
 
         const events = await getNostrEvents(req, relay);
-//	console.log(events);
+        //	console.log(events);
 
         const zaps = [];
         for (const e of events)
@@ -4727,14 +4727,14 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
             if (z.target_event_id)
                 event_ids.add(z.target_event_id);
         }
-//	console.log("event_ids", event_ids);
+        //	console.log("event_ids", event_ids);
 
         const profiles = await getNostrEvents({
             kinds: [0],
             authors: [...pubkeys.values()],
             limit: pubkeys.size,
         }, relay);
-//	console.log("profiles", profiles);
+        //	console.log("profiles", profiles);
         const profile_map = {};
         for (const p of profiles)
             profile_map[p.pubkey] = p;
@@ -4754,7 +4754,7 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
             if (z.target_event_id)
                 z.target_event = target_map[z.target_event_id];
         }
-//	console.log(zaps);
+        //	console.log(zaps);
 
         let label = "";
         if (type == "to")
@@ -4762,11 +4762,11 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
         else if (type == "via")
             label = "Latest zaps processed";
 
-//	const btns = formatProfileSerpButtons(pk);
-//	let html = `<h2>
-//${label} (${zaps.length}${zaps.length >= 100 ? "+" : ""}): ${btns}
-//</h2>
-//`;
+        //	const btns = formatProfileSerpButtons(pk);
+        //	let html = `<h2>
+        //${label} (${zaps.length}${zaps.length >= 100 ? "+" : ""}): ${btns}
+        //</h2>
+        //`;
         for (const z of zaps)
             html += formatZap(z, type);
 
@@ -4819,7 +4819,7 @@ href='index.html?viewParam=trending&viewValue=${type}&viewDate=${dt}'>${
 
                 const status = `
 Scanning ${r.u}...
-`;
+	`;
                 $("#scan-relays-status").html(status);
 
                 try
@@ -4837,7 +4837,7 @@ Scanning ${r.u}...
                             const nevent = tools.nip19.neventEncode({id: n.id, relays: [r.u]});
                             html += `
 <div>Found <a target='_blank' href='https://nostr.guru/${nevent}'>event</a> on ${r.u}</div>
-`;
+	      `;
                             $("#scan-relays-results").html(html);
                         }
                     }
@@ -4854,7 +4854,7 @@ Scanning ${r.u}...
                             const nevent = tools.nip19.neventEncode({id: n.id, relays: [r.u]});
                             html += `
 <div>Found <a target='_blank' href='https://nostr.guru/${nevent}'>event</a> by pubkey on ${r.u}</div>
-`;
+	      `;
                             $("#scan-relays-results").html(html);
                         }
                     }
@@ -4871,7 +4871,7 @@ Scanning ${r.u}...
                         {
                             html += `
 <div>Found <a target='_blank' href='https://nostr.guru/${nevent}'>profile</a> on ${r.u}</div>
-`;
+	      `;
                         }
                     }
                 }
@@ -4886,50 +4886,50 @@ Scanning ${r.u}...
 
     function formatAdvancedQuery() {
         const q_and = $("#a-and").val().trim();
-//	const q_hashtags = $("#a-hashtags").val().trim();
+        //	const q_hashtags = $("#a-hashtags").val().trim();
         const q_by = $("#a-by").val().trim();
         const q_following = $("#a-following").val().trim();
-//	const q_except = $("#a-except").val().trim();
+        //	const q_except = $("#a-except").val().trim();
         const q_lang = $("#a-lang").val().trim();
         const q_lna = $("#a-lna").val().trim();
         const q_nip05 = $("#a-nip05").val().trim();
         const q_spam = $("#a-spam").is(":checked");
 
         /*	let ht = "";
-	for (let h of q_hashtags.split(" "))
-	{
-	    h.trim();
-	    if (!h)
-		continue;
+       for (let h of q_hashtags.split(" "))
+       {
+       h.trim();
+       if (!h)
+       continue;
 
-	    if (h.substring(0,1) != "#")
-		h = "#" + h;
-	    if (ht)
-		ht += " ";
-	    ht += h;
-	}
-	let except = "";
-	for (let e of q_except.split(" "))
-	{
-	    e.trim();
-	    if (!e)
-		continue;
+       if (h.substring(0,1) != "#")
+       h = "#" + h;
+       if (ht)
+       ht += " ";
+       ht += h;
+       }
+       let except = "";
+       for (let e of q_except.split(" "))
+       {
+       e.trim();
+       if (!e)
+       continue;
 
-	    if (e.substring(0,1) != "-")
-		e = "-" + e;
-	    if (except)
-		except += " ";
-	    except += e;
-	}
-*/
+       if (e.substring(0,1) != "-")
+       e = "-" + e;
+       if (except)
+       except += " ";
+       except += e;
+       }
+     */
 
         let q = "";
         if (q_and)
             q += (q ? " " : "") + q_and;
-//	if (ht)
-//	    q += (q ? " " : "") + ht;
-//	if (except)
-//	    q += (q ? " " : "") + except;
+        //	if (ht)
+        //	    q += (q ? " " : "") + ht;
+        //	if (except)
+        //	    q += (q ? " " : "") + except;
         if (q_by)
             q += (q ? " " : "") + "by:"+q_by;
         if (q_following)
@@ -5004,8 +5004,7 @@ Scanning ${r.u}...
         const q = $("#q").val().trim();
         if (!q)
         {
-            document.location = "/";
-            //	    toastError("Specify query");
+            pushUrl("/");
             return;
         }
         setQuery(q);
@@ -5156,21 +5155,23 @@ Scanning ${r.u}...
         sendFeedback ();
     });
 
-    $("#trending a.nav-link").on("click", (e) => {
-        const type = getBranchAttr($(e.target), "data-trending");
+    /*  $("#trending a.nav-link").on("click", (e) => {
+    const type = getBranchAttr($(e.target), "data-trending");
 
-        const url = new URL(window.location);
-        if (type != "profiles")
-            url.searchParams.set('trending', type);
-        else
-            url.searchParams.delete('trending');
-        pushUrl(url);
+    const url = new URL(window.location);
+    if (type != "profiles")
+      url.searchParams.set('trending', type);
+    else
+      url.searchParams.delete('trending');
+    pushUrl(url);
 
-        showTrending(type);
-    });
+    showTrending(type);
+  });
+  */
 
-  $("#button-advanced-search-open").on("click", (e) => {
-    e.preventDefault();
+    // NOTE: separately handled bcs it's simpler this way
+    $("#button-advanced-search-open").on("click", (e) => {
+        e.preventDefault();
 
         const url = new URL(window.location);
         url.searchParams.set('advanced', 'true');
@@ -5285,7 +5286,7 @@ Scanning ${r.u}...
 
     $("#sort-buttons input[type=radio]").on("change", (e) => {
         const sort = getBranchAttr($(e.target), "data-sort");
-//	console.log("sort", sort);
+        //	console.log("sort", sort);
         if (sort.startsWith("popular"))
         {
             $("#sort-popular-group button.dropdown-toggle").removeClass("btn-outline-secondary");
@@ -5310,7 +5311,7 @@ Scanning ${r.u}...
             $("#sort-personalized-group button.dropdown-toggle").removeClass("btn-secondary");
         }
 
-//	console.log("set", sort);
+        //	console.log("set", sort);
 
         const ready = getBranchAttr($(e.target), "data-ready") == "true";
         if (ready)
@@ -5319,17 +5320,17 @@ Scanning ${r.u}...
         }
     });
 
-//    $("#sort-buttons .dropdown-toggle").on("click", (e) => {
-//	const sort_type = getBranchAttr($(e.target), "data-sort-type");
-//	$("#sort-"+sort_type).trigger("click");
-//    });
+    //    $("#sort-buttons .dropdown-toggle").on("click", (e) => {
+    //	const sort_type = getBranchAttr($(e.target), "data-sort-type");
+    //	$("#sort-"+sort_type).trigger("click");
+    //    });
 
     function setSort(e)
     {
         const sort_type = getBranchAttr($(e), "data-sort-type");
         const sort = getBranchAttr($(e), "data-sort");
         const html = $(e).html();
-//	console.log("sort", sort, html, sort_type);
+        //	console.log("sort", sort, html, sort_type);
 
         // activate this dropdown item
         $(e).parents(".dropdown-menu").find(".dropdown-item").removeClass("active");
@@ -5354,14 +5355,14 @@ Scanning ${r.u}...
         if (ready)
         {
 
-//	    console.log("push sub", sort);
+            //	    console.log("push sub", sort);
             applySort(sort);
         }
     }
 
     function activateSort(sort)
     {
-//	console.log("activate", sort);
+        //	console.log("activate", sort);
         // just try to click it
         $("#sort-"+sort).trigger("click");
 
@@ -5383,10 +5384,10 @@ Scanning ${r.u}...
 
         const psize = 20;
         let html = `
-<img style='width: ${psize}px; height: ${psize}px' 
- data-src='${san(img)}' src='${thumb}' 
- class="profile ${img ? '' : 'd-none'}" onerror="javascript:replaceImgSrc(this)"> ${name}
-`;
+      <img style='width: ${psize}px; height: ${psize}px' 
+	   data-src='${san(img)}' src='${thumb}' 
+	   class="profile ${img ? '' : 'd-none'}" onerror="javascript:replaceImgSrc(this)"> ${name}
+    `;
         if (about && p.about)
         {
             let a = p.about;
@@ -5417,7 +5418,7 @@ Scanning ${r.u}...
         }
 
         let html = `
-`;
+    `;
 
         for (p of serp) {
             const profile = formatProfilePreview(p.pubkey, p, /* about */true);
@@ -5428,7 +5429,7 @@ Scanning ${r.u}...
     <button type="button" class="btn-close float-end" aria-label="Close"></button>
   </div>
 </div>	
-`;
+      `;
         }
 
         const sel = "#list-update-modal";
@@ -5491,17 +5492,23 @@ Scanning ${r.u}...
         // we need CL for write relays
         await ensureContactList();
 
+        const addr = parseEid(target);
+
         let event = null;
         if (unlabel) {
 
             const sub = {
                 kinds: [KIND_LABEL],
                 authors: [login_pubkey],
-                '#e': [target],
                 '#l': [label],
                 '#L': [LABEL_CATEGORY],
                 limit: 1,
             };
+
+            if (addr.includes(":"))
+                sub['#a'] = [addr];
+            else
+                sub['#e'] = [addr];
 
             const events = await getNostrEvents(sub, RELAY_ALL);
             if (events && events.length > 0)
@@ -5510,7 +5517,7 @@ Scanning ${r.u}...
                     kind: KIND_DELETE,
                     content: "",
                     tags: [
-                        ["e", events[0].id],
+                        ["e", events[0].id]
                     ],
                 };
             }
@@ -5528,9 +5535,13 @@ Scanning ${r.u}...
                 tags: [
                     ["l", label, LABEL_CATEGORY],
                     ["L", LABEL_CATEGORY],
-                    ["e", target, "wss://relay.nostr.band"],
                 ],
             };
+
+            if (addr.includes(":"))
+                event.tags.push(["a", addr, "wss://relay.nostr.band"]);
+            else
+                event.tags.push(["e", addr, "wss://relay.nostr.band"]);
         }
 
         const contact_relays = getContactRelays();
@@ -5548,8 +5559,8 @@ Scanning ${r.u}...
         }
     }
 
-    async function addLabel(event_id) {
-        $("#new-label-modal").attr("data-eid", event_id);
+    async function addLabel(eid) {
+        $("#new-label-modal").attr("data-eid", eid);
         $("#new-label-modal").modal ("show");
     }
 
@@ -5653,15 +5664,15 @@ Scanning ${r.u}...
         }
 
         let html = `
-<div class='mt-2 mb-1'><b>Select list:</b></div>
-<select class="form-select" aria-label="Select list">
-`;
+      <div class='mt-2 mb-1'><b>Select list:</b></div>
+      <select class="form-select" aria-label="Select list">
+    `;
         const last_list = localGet("last_list");
         for (const l of latest_lists)
         {
             html += `
   <option value="${l.id}" ${!new_list_pubkey && last_list == l.id ? "selected" : ""}>${l.name}</option>
-`;
+      `;
         }
         if (!unlist)
             html += `<option value='' ${new_list_pubkey ? "selected" : ""}>+ New List</option>`;
@@ -5672,7 +5683,7 @@ Scanning ${r.u}...
 <input type='text' class='form-control' placeholder='Enter list name'>
 </div>
 <div class='mt-2 mb-1'><b>Profiles:</b></div>
-`;
+    `;
         $("#list-update-modal .list-info").html (html);
 
         $("#list-update-modal .list-info select").on("change", function (e) {
@@ -5685,7 +5696,7 @@ Scanning ${r.u}...
 
         // reset
         html = `
-`;
+    `;
         for (p of serp) {
             if (new_list_pubkey && p.pubkey != new_list_pubkey)
                 continue;
@@ -5698,7 +5709,7 @@ Scanning ${r.u}...
     <button type="button" class="btn-close float-end" aria-label="Close"></button>
   </div>
 </div>	
-`;
+      `;
         }
 
         const sel = "#list-update-modal";
@@ -5858,32 +5869,32 @@ Scanning ${r.u}...
 
         const npub = getNpub(pubkey);
         $("#user .profile").attr("href", "/" + npub);
-        $("#user .profile").on("click", (e) => {
-            e.preventDefault();
-            gotoProfile(pubkey);
-        });
-
+        /*    $("#user .profile").on("click", (e) => {
+      e.preventDefault();
+      gotoProfile(pubkey);
+    });
+    */
         const posts_q = npub;
         $("#user .posts").attr("href", "/?type=posts&q=" + encodeURIComponent(posts_q));
-        $("#user .posts").on("click", (e) => {
-            e.preventDefault();
-            startSearchScroll(posts_q, 0, 'posts', '');
-        });
-
+        /*    $("#user .posts").on("click", (e) => {
+      e.preventDefault();
+      startSearchScroll(posts_q, 0, 'posts', '');
+    });
+    */
         const following_q = "following:" + npub;
         $("#user .following").attr("href", "/?type=profiles&q=" + encodeURIComponent(following_q));
-        $("#user .following").on("click", (e) => {
-            e.preventDefault();
-            startSearchScroll(following_q, 0, 'profiles', '');
-        });
-
+        /*    $("#user .following").on("click", (e) => {
+      e.preventDefault();
+      startSearchScroll(following_q, 0, 'profiles', '');
+    });
+    */
         const feed_q = "following:" + npub;
         $("#user .feed").attr("href", "/?type=posts&q=" + encodeURIComponent(feed_q));
-        $("#user .feed").on("click", (e) => {
-            e.preventDefault();
-            startSearchScroll(following_q, 0, 'posts', '');
-        });
-
+        /*    $("#user .feed").on("click", (e) => {
+      e.preventDefault();
+      startSearchScroll(following_q, 0, 'posts', '');
+    });
+    */
         $("#login").addClass("d-none");
         $("#about-menu").addClass("d-none");
         $("#user").removeClass("d-none");
@@ -5897,7 +5908,7 @@ Scanning ${r.u}...
 
     async function initUser () {
         // render the user if they've been logged in && extension user hasn't changed
-        if (login_pubkey && login_pubkey == (await window.nostr.getPublicKey()))
+        if (window.nostr && login_pubkey && login_pubkey == (await window.nostr.getPublicKey()))
         {
             showUser();
         }
@@ -5968,7 +5979,7 @@ Scanning ${r.u}...
         {
             if (pubkey.startsWith ("npub"))
             {
-                let {type, data} = tools.nip19.decode(pubkey)
+                let {type, data} = tools.nip19.decode(pubkey);
                 if (type == "npub")
                     pubkey = data;
             }
@@ -6044,7 +6055,7 @@ Scanning ${r.u}...
     const scope = localGet("scope");
     $("#scope-"+scope).trigger("click");
 
-    $("#object-types a").on("click", function (e) {
+    $("#object-types button").on("click", function (e) {
         e.preventDefault();
         const type = $(e.target).attr("data-type");
         setType(type);
@@ -6076,8 +6087,8 @@ Scanning ${r.u}...
             updateNostrContactList();
             updateNostrLists();
             updateNostrLabels();
-//      latest_contact_list = await getLatestNostrEvent(KIND_CONTACT_LIST, login_pubkey);
-//      updateFollows();
+            //      latest_contact_list = await getLatestNostrEvent(KIND_CONTACT_LIST, login_pubkey);
+            //      updateFollows();
         }
         catch (e)
         {
@@ -6120,8 +6131,12 @@ Scanning ${r.u}...
 
     $("#q").focus ();
 
+    attachLinkHandlers();
+
     // schedule initUser after nostr extension is ready
     addOnNostr(initUser);
+
+    // execute it immediately to init the login button
     initUser();
 
     // init the nostr extension

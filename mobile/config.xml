@@ -1,12 +1,12 @@
 <?xml version='1.0' encoding='utf-8'?>
 <widget id="com.nostr.band" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
-    <name>NB</name>
-    <description>Nostr.Band</description>
-    <author email="" href="https://cordova.apache.org">
-
+    <name>Nostr.Band</name>
+    <description>Nostr.Band ios app</description>
+    <author email="artur.briugeman@gmail.com" href="https://nostr.band/">
+        Nostr.Band Team
     </author>
-    <icon src='SRC/favicon-16x16.png' />
     <content src="index.html" />
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
+    <icon src='www/img/android-chrome-192x192.png' />
 </widget>

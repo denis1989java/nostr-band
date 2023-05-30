@@ -19,6 +19,8 @@
             data-domain="nostr.band"
             src="/js/script.outbound-links.js"></script>
 
+    <script src="cordova.js"></script>
+
 </head>
 <body class='embed-mode'>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js" integrity="sha384-w76AqPfDkMBDXo30jS1Sgez6pr3x5MlQ1ZAGC+nuZB+EYdgRZgiwxhTBTkF7CXvN" crossorigin="anonymous"></script>
@@ -28,17 +30,17 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/js/bootstrap-datepicker.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bs5-lightbox@1.8.3/dist/index.bundle.min.js"></script>
 
-<script src="https://nostr.band/qrcode.min.js"></script>
-<script src="https://nostr.band/purify.min.js"></script>
-<script src="https://nostr.band/noble-secp256k1.js"></script>
-<script src="https://nostr.band/nostr.bundle.js"></script>
+<script src="/qrcode.min.js"></script>
+<script src="/purify.min.js"></script>
+<script src="/noble-secp256k1.js"></script>
+<script src="/nostr.bundle.js"></script>
 <script src="/bolt11.min.js"></script>
 
 <div class='container header'><div class='row justify-content-md-center'><div class='col-lg-9 col'>
     <nav class="navbar navbar-expand-lg">
         <div class="container">
             <a class="navbar-brand" href="/">
-                <img src='https://nostr.band/android-chrome-192x192.png' width='26'
+                <img src='/android-chrome-192x192.png' width='26'
                      class="d-inline-block align-text-top" >
                 Nostr.Band
             </a>
@@ -172,15 +174,15 @@
 
             <button id='object-type' class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">All</button>
             <ul id='object-types' class="dropdown-menu">
-                <li><a class="dropdown-item" href="#" data-type="all">All</a></li>
-                <li><a class="dropdown-item" href="#" data-type="posts">Posts</a></li>
-                <li><a class="dropdown-item" href="#" data-type="profiles">Profiles</a></li>
-                <!--li><a class="dropdown-item" href="#" data-type="long_posts">Long posts</a></li-->
-                <li><a class="dropdown-item" href="#" data-type="zaps">Zaps</a></li>
+                <li><button type="button" class="dropdown-item" data-type="all">All</button></li>
+                <li><button type="button" class="dropdown-item" data-type="posts">Posts</button></li>
+                <li><button type="button" class="dropdown-item" data-type="profiles">Profiles</button></li>
+                <!--li><button type="button" class="dropdown-item" data-type="long_posts">Long posts</button></li-->
+                <li><button type="button" class="dropdown-item" data-type="zaps">Zaps</button></li>
             </ul>
-            <!-- button class="btn btn-outline-primary" type="button" id="button-advanced-search-open">
-              ...
-            </button-->
+            <!-- button type="button" class="btn btn-outline-primary" type="button" id="button-advanced-search-open">
+                 ...
+                 </button-->
             <button class="btn btn-outline-secondary" type="submit" id="button-search">
                 <i class="bi bi-search"></i>
             </button>
@@ -263,10 +265,10 @@
             <input type="text" class="form-control a-s" placeholder="Author" aria-label="Author" name="a-by" id="a-by">
             <small class="text-muted">Example: npub1xxx - Only posts by npub1xxx</small>
         </div>
-        <!-- div class="mb-2">
-          <input type="text" class="form-control a-s" placeholder="Following" aria-label="Following" name="a-following" id="a-following">
-          <small class="text-muted">Example: npub1xxx - Only posts by profiles that npub1xxx is following</small>
-        </div -->
+        <div class="mb-2">
+            <input type="text" class="form-control a-s" placeholder="Following" aria-label="Following" name="a-following" id="a-following">
+            <small class="text-muted">Example: npub1xxx - Only posts by profiles that npub1xxx is following</small>
+        </div>
         <div class="mb-2">
             <input type="text" class="form-control a-s" placeholder="Language" aria-label="Language" name="a-lang" id="a-lang">
             <small class="text-muted">Example: en - Only posts in English</small>
@@ -484,7 +486,7 @@
                     <ul class="dropdown-menu">
                         <li><button class="dropdown-item" data-client='damus'><img width="16" src="https://damus.io/favicon.ico"> Damus</button></li>
                         <li><button class="dropdown-item" data-client='amethyst'><img width="16" src="https://github.com/vitorpamplona/amethyst/raw/main/fastlane/metadata/android/en-US/images/icon.png"> Amethyst</button></li>
-                        <li><button class="dropdown-item" data-client='snort'><img width="16" src="https://nostr.band/snort.png"> Snort.social</button></li>
+                        <li><button class="dropdown-item" data-client='snort'><img width="16" src="/snort.png"> Snort.social</button></li>
                         <li><button class="dropdown-item" data-client='iris'><img width="16" src="https://iris.to/favicon.ico"> Iris.to</button></li>
                         <li><button class="dropdown-item" data-client='nostrgram'><img width="16" src="https://nostrgram.co/images/logo_new_icon.ico"> NostrGram</button></li>
                         <li><button class="dropdown-item" data-client='astral'><img width="16" src="https://astral.ninja/favicon.ico"> Astral.ninja</button></li>
@@ -819,9 +821,9 @@
     <div class="container">
         <center style=''>
             <div>
-                <a class='nav-link' style='display: inline; padding-right: 10px' href="//nostr.band/about.html">About</a>
-                <a class='nav-link' style='display: inline; padding-right: 10px' href="//nostr.band/privacy.html">Privacy</a>
-                <a class='nav-link' style='display: inline; ' href="//nostr.band/tos.html">Terms</a>
+                <a class='nav-link' style='display: inline; padding-right: 10px' href="/about.html">About</a>
+                <a class='nav-link' style='display: inline; padding-right: 10px' href="/privacy.html">Privacy</a>
+                <a class='nav-link' style='display: inline; ' href="/tos.html">Terms</a>
             </div>
             <div>
                 <small class="text-muted">&copy; 2023</small>

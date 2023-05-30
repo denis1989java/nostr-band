@@ -1,8 +1,8 @@
 {
-  "name": "io.cordova.hellocordova",
-  "displayName": "HelloCordova",
+  "name": "com.nostr.band",
+  "displayName": "Nostr.Band",
   "version": "1.0.0",
-  "description": "A sample Apache Cordova application that responds to the deviceready event.",
+  "description": "Nostr.Band ios app",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -12,12 +12,14 @@
   ],
   "author": "Apache Cordova Team",
   "license": "Apache-2.0",
+  "devDependencies": {
+    "cordova-android": "^10.1.2",
+    "cordova-ios": "^6.3.0"
+  },
   "cordova": {
     "platforms": [
+      "ios",
       "android"
     ]
-  },
-  "devDependencies": {
-    "cordova-android": "^10.1.2"
   }
 }
