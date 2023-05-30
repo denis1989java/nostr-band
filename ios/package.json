@@ -1,0 +1,23 @@
+{
+  "name": "com.nostr.band",
+  "displayName": "Nostr.Band",
+  "version": "1.0.0",
+  "description": "Nostr.Band ios app",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ecosystem:cordova"
+  ],
+  "author": "Apache Cordova Team",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "cordova-ios": "^6.3.0"
+  },
+  "cordova": {
+    "platforms": [
+      "ios"
+    ]
+  }
+}
