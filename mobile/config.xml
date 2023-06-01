@@ -1,12 +1,15 @@
 <?xml version='1.0' encoding='utf-8'?>
 <widget id="com.nostr.band" version="1.0.0" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
     <name>Nostr.Band</name>
-    <description>Nostr.Band ios app</description>
-    <author email="artur.briugeman@gmail.com" href="https://nostr.band/">
-        Nostr.Band Team
+    <description>Search and discovery on Nostr</description>
+    <author email="admin@nostr.band" href="https://nostr.band/">
+        NostrCorp, Inc.
     </author>
     <content src="index.html" />
     <allow-intent href="http://*/*" />
     <allow-intent href="https://*/*" />
     <icon src='www/img/android-chrome-192x192.png' />
+    <platform name="android">
+      <preference name="android-targetSdkVersion" value="31"/>
+    </platform>
 </widget>
