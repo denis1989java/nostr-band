@@ -2,7 +2,7 @@
   "name": "com.nostr.band",
   "displayName": "Nostr.Band",
   "version": "1.0.0",
-  "description": "Nostr.Band ios app",
+  "description": "Search and discovery on Nostr",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
