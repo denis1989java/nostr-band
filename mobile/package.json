@@ -14,12 +14,18 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "cordova-android": "^10.1.2",
-    "cordova-ios": "^6.3.0"
+    "cordova-ios": "^6.3.0",
+    "cordova-plugin-device": "^2.1.0",
+    "nostr-cordova-plugin-secure-key": "github:denis1989java/nostr-cordova-plugin-secure-key"
   },
   "cordova": {
     "platforms": [
       "ios",
       "android"
-    ]
+    ],
+    "plugins": {
+      "cordova-plugin-device": {},
+      "cordova-plugin-secure-key-store": {}
+    }
   }
 }

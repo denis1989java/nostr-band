@@ -37,6 +37,27 @@ $(function () {
   let nostr_enabled = false;
 
   let cordovaUrl = null;
+
+  document.addEventListener("deviceready", onDeviceReady, false)
+  function onDeviceReady() {
+    let nostr = {}
+    nostr = {
+      getPublicKey: async function (key) {
+        let result = ""
+        await cordova.plugins.nostr.getPublicKey(
+          function (res) {
+            result = res
+          },
+          function (error) {
+            console.log(error)
+          },
+          key
+        )
+        return result
+      }
+    }
+    window.nostr = nostr
+  }
   
   async function addOnNostr(handler) {
     
@@ -5819,14 +5840,14 @@ Scanning ${r.u}...
     try
     {
       await enableNostr();
-      login_pubkey = await window.nostr.getPublicKey();
-      localSet("login", login_pubkey);
+      login_pubkey = await window.nostr.getPublicKey('a');
+      // localSet("login", login_pubkey);
 
-      showUser();
+      // showUser();
 
-      updateNostrContactList();
-      updateNostrLists();
-      updateNostrLabels();
+      // updateNostrContactList();
+      // updateNostrLists();
+      // updateNostrLabels();
     }
     catch (e)
     {
