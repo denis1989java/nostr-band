@@ -40,20 +40,18 @@ $(function () {
 
   document.addEventListener("deviceready", onDeviceReady, false)
   function onDeviceReady() {
-    let nostr = {}
-    nostr = {
-      getPublicKey: async function (key) {
-        let result = ""
-        await cordova.plugins.nostr.getPublicKey(
-          function (res) {
-            result = res
-          },
-          function (error) {
-            console.log(error)
-          },
-          key
-        )
-        return result
+    let nostr = {
+        getPublicKey: function () {
+            return new Promise( (resolve, reject) => {
+                 cordova.plugins.nostr.getPublicKey(
+                    function (res) {
+                        resolve(res.privKey.replaceAll("\"",""))
+                    },
+                    function (error) {
+                        reject(error)
+                    }
+                )
+            })
       }
     }
     window.nostr = nostr
@@ -5836,18 +5834,17 @@ Scanning ${r.u}...
       toastError("No browser extension found!");
       return;
     }
-    
+
     try
     {
       await enableNostr();
-      login_pubkey = await window.nostr.getPublicKey('a');
-      // localSet("login", login_pubkey);
+      login_pubkey = await window.nostr.getPublicKey();
+      localSet("login", login_pubkey);
+      showUser();
 
-      // showUser();
-
-      // updateNostrContactList();
-      // updateNostrLists();
-      // updateNostrLabels();
+      updateNostrContactList();
+      updateNostrLists();
+      updateNostrLabels();
     }
     catch (e)
     {
