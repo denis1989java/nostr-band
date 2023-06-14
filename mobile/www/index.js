@@ -38,24 +38,38 @@ $(function () {
 
   let cordovaUrl = null;
 
-  document.addEventListener("deviceready", onDeviceReady, false)
-  function onDeviceReady() {
-    let nostr = {
-        getPublicKey: function () {
-            return new Promise( (resolve, reject) => {
-                 cordova.plugins.nostr.getPublicKey(
-                    function (res) {
-                        resolve(res.privKey.replaceAll("\"",""))
-                    },
-                    function (error) {
-                        reject(error)
-                    }
-                )
-            })
-      }
+    document.addEventListener("deviceready", onDeviceReady, false)
+
+    function onDeviceReady() {
+        let nostr = {
+            getPublicKey: function () {
+                return new Promise((resolve, reject) => {
+                    cordova.plugins.nostr.getPublicKey(
+                        function (res) {
+                            resolve(res.privKey.replaceAll("\"", ""))
+                        },
+                        function (error) {
+                            reject(error)
+                        }
+                    )
+                })
+            },
+            signEvent: function (msg) {
+                return new Promise((resolve, reject) => {
+                    cordova.plugins.nostr.signEvent(
+                        function (res) {
+                            resolve(res)
+                        },
+                        function (error) {
+                            reject(error)
+                        },
+                        msg
+                    )
+                })
+            }
+        }
+        window.nostr = nostr
     }
-    window.nostr = nostr
-  }
   
   async function addOnNostr(handler) {
     
@@ -1723,7 +1737,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
   }
   
   async function sendNostrMessage(tmpl, pref_relays) {
-
+    console.log("DDJHJDHJDHJDHJDHDJHDJDHJDHJDHJDHJDHDJHDJHDJDJDHJDHJD")
     let msg = {
       kind: tmpl.kind,
       content: tmpl.content,
@@ -1742,7 +1756,10 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
       msg.id = await getNostrEventID(msg);
 
       // sign
+        console.log("LFKLKFLFKLFKLFKLFKLFKFLKFLKFLFKLKLFKLFKLFKLFKLFKLF")
       msg = await window.nostr.signEvent(msg);
+        console.log(JSON.stringify(msg))
+        console.log("LFKLKFLFKLFKLFKLFKLFKFLKFLKFLFKLKLFKLFKLFKLFKLFKLF")
     }
     catch (e)
     {
@@ -5838,7 +5855,9 @@ Scanning ${r.u}...
     try
     {
       await enableNostr();
+      console.log("DGHHDGHDGHDGHDGDHGDHGDHDGHDGH")
       login_pubkey = await window.nostr.getPublicKey();
+      console.log("DGHHDGHDGHDGHDGDHGDHGDHDGHDGH login_pubkey", login_pubkey)
       localSet("login", login_pubkey);
       showUser();
 
