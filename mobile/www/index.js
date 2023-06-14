@@ -37,39 +37,6 @@ $(function () {
   let nostr_enabled = false;
 
   let cordovaUrl = null;
-
-    document.addEventListener("deviceready", onDeviceReady, false)
-
-    function onDeviceReady() {
-        let nostr = {
-            getPublicKey: function () {
-                return new Promise((resolve, reject) => {
-                    cordova.plugins.nostr.getPublicKey(
-                        function (res) {
-                            resolve(res.privKey.replaceAll("\"", ""))
-                        },
-                        function (error) {
-                            reject(error)
-                        }
-                    )
-                })
-            },
-            signEvent: function (msg) {
-                return new Promise((resolve, reject) => {
-                    cordova.plugins.nostr.signEvent(
-                        function (res) {
-                            resolve(res)
-                        },
-                        function (error) {
-                            reject(error)
-                        },
-                        msg
-                    )
-                })
-            }
-        }
-        window.nostr = nostr
-    }
   
   async function addOnNostr(handler) {
     
