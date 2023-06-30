@@ -2779,6 +2779,7 @@ class="profile ${img ? '' : 'd-none'}"> ${san(name)}</span>
         if (window.cordova) {
             console.log("go to", url);
             cordovaUrl = url;
+            window.history.pushState({}, '', url);
         } else {
             window.history.pushState({}, '', url);
         }
@@ -3252,7 +3253,7 @@ ${active_label}
         if ("plausible" in window)
             window.plausible('pageview', {props: {n: is_new ? 1 : 0, l: login_pubkey ? 1 : 0}});
 
-        const url = cordovaUrl || document.location;
+        const url = document.location || cordovaUrl;
 
         const params = deParams(url.search);
         let path = url.pathname;
